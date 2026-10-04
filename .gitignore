@@ -17,3 +17,5 @@ frontend/dist/
 # Editors
 .vscode/
 .idea/
+
+.vercel
