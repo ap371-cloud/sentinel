@@ -1,6 +1,6 @@
 ﻿/* ==========================================================================
    SENTINEL â€” command-centre design system
-   Dark security console. Colour carries semantic meaning only:
+   Deep teal on mint. Colour carries semantic meaning only:
    green verified, amber attention, red critical, blue information, grey inactive.
    ========================================================================== */
 
@@ -8,52 +8,52 @@
   color-scheme: light;
 
   /* surfaces */
-  --bg: #e8f1fb;
-  --bg-2: #f4f9ff;
-  --panel: #f4f9ff;
-  --panel-2: #e0ecf9;
-  --panel-3: #d4e4f6;
+  --bg: #e6fbf6;
+  --bg-2: #f2fdfb;
+  --panel: #ffffff;
+  --panel-2: #f0fdfa;
+  --panel-3: #ccfbf1;
   --raised: #ffffff;
 
   /* lines */
-  --line: #cfdff1;
-  --line-2: #c2d5ec;
-  --hair: #e2ecfa;
+  --line: #c3ede3;
+  --line-2: #a7e8db;
+  --hair: #d8f5ee;
 
   /* text */
-  --tx: #0f1f33;
-  --tx-2: #2b405a;
-  --muted: #5d738c;
-  --dim: #8ba0b8;
-  --text: #0a1626;
+  --tx: #073b3a;
+  --tx-2: #0f766e;
+  --muted: #4a7a76;
+  --dim: #7ba5a1;
+  --text: #052e2d;
 
   /* brand accent */
-  --accent: #2b6fd6;
-  --accent-bg: #d8e8fb;
-  --accent-line: #a8c6ef;
+  --accent: #0f766e;
+  --accent-bg: #ccfbf1;
+  --accent-line: #a7f3d0;
 
   /* semantics */
   --ok: #16a34a;
   --ok-bg: #dcf5e4;
   --ok-line: #9ad7ad;
-  --warn: #d97706;
-  --warn-bg: #fcefD3;
-  --warn-line: #f0d193;
+  --warn: #f59e0b;
+  --warn-bg: #fef3c7;
+  --warn-line: #fcd34d;
   --high: #ea580c;
   --high-bg: #fde8d7;
   --high-line: #f4c39b;
   --crit: #dc2626;
   --crit-bg: #fde3e3;
   --crit-line: #f3b2b2;
-  --info: #3b7ddb;
-  --info-bg: #dde9fa;
-  --info-line: #b6cfeb;
-  --idle: #6b7280;
-  --idle-bg: #f0f0f3;
-  --idle-line: #d9d9e0;
+  --info: #1d4ed8;
+  --info-bg: #dbeafe;
+  --info-line: #bfdbfe;
+  --idle: #64748b;
+  --idle-bg: #f1f5f4;
+  --idle-line: #d7e3e1;
 
-  --focus: #2b6fd6;
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 8px 20px rgba(15, 35, 65, 0.10);
+  --focus: #0f766e;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 8px 20px rgba(7, 59, 58, 0.10);
   --radius: 8px;
   --radius-lg: 12px;
 
@@ -80,12 +80,12 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-::selection { background: rgba(77, 159, 255, 0.28); }
+::selection { background: rgba(20, 184, 166, 0.28); }
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #1d2735; border-radius: 5px; border: 2px solid var(--bg); }
-::-webkit-scrollbar-thumb:hover { background: #2a374a; }
+::-webkit-scrollbar-thumb { background: #073b3a; border-radius: 5px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: #0f766e; }
 
 :focus-visible {
   outline: 2px solid var(--focus);
@@ -377,10 +377,10 @@ body {
 .badge.lg { font-size: 11px; padding: 4px 10px; letter-spacing: 1.2px; }
 
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-.dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 201, 139, 0.14); }
-.dot.warn { background: var(--warn); box-shadow: 0 0 0 3px rgba(233, 169, 74, 0.14); }
-.dot.crit { background: var(--crit); box-shadow: 0 0 0 3px rgba(255, 85, 102, 0.16); }
-.dot.info { background: var(--info); box-shadow: 0 0 0 3px rgba(77, 159, 255, 0.14); }
+.dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.16); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18); }
+.dot.crit { background: var(--crit); box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.16); }
+.dot.info { background: var(--info); box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.16); }
 .dot.pulse { animation: pulse 1.7s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
@@ -458,7 +458,7 @@ table.tbl tr:last-child td { border-bottom: none; }
 .btn:hover:not(:disabled) { border-color: var(--info-line); color: var(--info); background: var(--panel-3); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn.primary { background: var(--accent-bg); border-color: var(--accent-line); color: var(--accent); }
-.btn.primary:hover:not(:disabled) { background: #cfe0f4; }
+.btn.primary:hover:not(:disabled) { background: #0b5f58; }
 .btn.danger { background: var(--crit-bg); border-color: var(--crit-line); color: var(--crit); }
 .btn.danger:hover:not(:disabled) { background: #241015; }
 .btn.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn); }
@@ -751,7 +751,7 @@ input.inp[type="file"] { padding: 6px 10px; height: auto; cursor: pointer; }
 
 .login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px;
   background:
-    radial-gradient(1100px 520px at 50% -10%, rgba(77, 159, 255, 0.07), transparent 65%),
+    radial-gradient(1100px 520px at 50% -10%, rgba(20, 184, 166, 0.08), transparent 65%),
     var(--bg);
 }
 .login-card { width: min(880px, 100%); display: grid; grid-template-columns: 1.05fr 1fr;
