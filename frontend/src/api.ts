@@ -36,6 +36,10 @@ export class ApiError extends Error {
   }
 }
 
+/** Where the API lives. Empty means same-origin (dev: Vite proxies; local demo).
+ *  Set VITE_API_BASE to the deployed backend URL for a hosted demo. */
+const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -43,7 +47,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   };
   if (bearer) headers.Authorization = `Bearer ${bearer}`;
 
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(`${BASE}${path}`, { ...init, headers });
   const text = await response.text();
   let body: unknown = {};
   if (text) {

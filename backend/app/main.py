@@ -11,10 +11,12 @@ active, so the API is reachable only from the local command terminal.
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -110,6 +112,25 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
+)
+
+# The browser talks to this backend across origins when the console is hosted
+# separately (e.g. Vercel frontend -> Railway backend). Local dev keeps the
+# default loopback origins; set SENTINEL_CORS_ORIGINS to allow your frontend.
+_origins = [
+    origin.strip()
+    for origin in os.getenv(
+        "SENTINEL_CORS_ORIGINS",
+        "http://127.0.0.1:5173,http://localhost:5173",
+    ).split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
