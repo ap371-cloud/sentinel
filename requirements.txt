@@ -1,0 +1,25 @@
+# Pinned to the versions this prototype was developed and verified against.
+
+# Runtime
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+SQLAlchemy==2.1.3
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-multipart==0.0.32
+
+# Cryptography
+# pqcrypto 1.0.0 supplies ML-KEM-768 (FIPS 203) and ML-DSA-65 (FIPS 204) as compiled
+# PQClean code behind a liboqs-compatible API. These are real implementations, not
+# development fallbacks.
+pqcrypto==1.0.0
+cryptography==50.0.2
+
+# Watermarking and rendering
+pymupdf==1.28.2
+numpy==2.5.3
+pillow==12.3.0
+
+# Testing
+pytest==9.1.1
+httpx==0.28.1
