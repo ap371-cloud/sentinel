@@ -1,61 +1,63 @@
 ﻿/* ==========================================================================
-   SENTINEL â€” command-centre design system
-   Deep teal on mint. Colour carries semantic meaning only:
-   green verified, amber attention, red critical, blue information, grey inactive.
+   SENTINEL - security operations console
+   Dark operational surfaces with teal/cyan instrumentation accents.
+   Colour carries semantic meaning only:
+   green verified, amber attention, orange high, red critical,
+   cyan information, grey inactive.
    ========================================================================== */
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
   /* surfaces */
-  --bg: #e6fbf6;
-  --bg-2: #f2fdfb;
-  --panel: #ffffff;
-  --panel-2: #f0fdfa;
-  --panel-3: #ccfbf1;
-  --raised: #ffffff;
+  --bg: #0b1220;
+  --bg-2: #111827;
+  --panel: #172033;
+  --panel-2: #1c2639;
+  --panel-3: #232f45;
+  --raised: #1d2739;
 
   /* lines */
-  --line: #c3ede3;
-  --line-2: #a7e8db;
-  --hair: #d8f5ee;
+  --line: #26334a;
+  --line-2: #334159;
+  --hair: #1e293b;
 
   /* text */
-  --tx: #073b3a;
-  --tx-2: #0f766e;
-  --muted: #4a7a76;
-  --dim: #7ba5a1;
-  --text: #052e2d;
+  --tx: #e5e7eb;
+  --tx-2: #cbd5e1;
+  --muted: #94a3b8;
+  --dim: #64748b;
+  --text: #f1f5f9;
 
-  /* brand accent */
-  --accent: #0f766e;
-  --accent-bg: #ccfbf1;
-  --accent-line: #a7f3d0;
+  /* instrumentation accent */
+  --accent: #14b8a6;
+  --accent-bg: rgba(20, 184, 166, 0.13);
+  --accent-line: rgba(20, 184, 166, 0.36);
 
   /* semantics */
-  --ok: #16a34a;
-  --ok-bg: #dcf5e4;
-  --ok-line: #9ad7ad;
+  --ok: #22c55e;
+  --ok-bg: rgba(34, 197, 94, 0.13);
+  --ok-line: rgba(34, 197, 94, 0.36);
   --warn: #f59e0b;
-  --warn-bg: #fef3c7;
-  --warn-line: #fcd34d;
-  --high: #ea580c;
-  --high-bg: #fde8d7;
-  --high-line: #f4c39b;
-  --crit: #dc2626;
-  --crit-bg: #fde3e3;
-  --crit-line: #f3b2b2;
-  --info: #1d4ed8;
-  --info-bg: #dbeafe;
-  --info-line: #bfdbfe;
+  --warn-bg: rgba(245, 158, 11, 0.13);
+  --warn-line: rgba(245, 158, 11, 0.36);
+  --high: #f97316;
+  --high-bg: rgba(249, 115, 22, 0.13);
+  --high-line: rgba(249, 115, 22, 0.36);
+  --crit: #ef4444;
+  --crit-bg: rgba(239, 68, 68, 0.13);
+  --crit-line: rgba(239, 68, 68, 0.38);
+  --info: #38bdf8;
+  --info-bg: rgba(56, 189, 248, 0.12);
+  --info-line: rgba(56, 189, 248, 0.34);
   --idle: #64748b;
-  --idle-bg: #f1f5f4;
-  --idle-line: #d7e3e1;
+  --idle-bg: rgba(100, 116, 139, 0.14);
+  --idle-line: rgba(100, 116, 139, 0.34);
 
-  --focus: #0f766e;
-  --shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 8px 20px rgba(7, 59, 58, 0.10);
+  --focus: #14b8a6;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 6px 18px rgba(2, 6, 16, 0.45);
   --radius: 8px;
-  --radius-lg: 12px;
+  --radius-lg: 10px;
 
   --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", "Cascadia Mono", Consolas, "SF Mono", ui-monospace, monospace;
@@ -84,8 +86,8 @@ body {
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #073b3a; border-radius: 5px; border: 2px solid var(--bg); }
-::-webkit-scrollbar-thumb:hover { background: #0f766e; }
+::-webkit-scrollbar-thumb { background: #334159; border-radius: 5px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
 
 :focus-visible {
   outline: 2px solid var(--focus);
@@ -377,10 +379,10 @@ body {
 .badge.lg { font-size: 11px; padding: 4px 10px; letter-spacing: 1.2px; }
 
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-.dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.16); }
+.dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.18); }
 .dot.warn { background: var(--warn); box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18); }
 .dot.crit { background: var(--crit); box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.16); }
-.dot.info { background: var(--info); box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.16); }
+.dot.info { background: var(--info); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18); }
 .dot.pulse { animation: pulse 1.7s ease-in-out infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
@@ -458,9 +460,9 @@ table.tbl tr:last-child td { border-bottom: none; }
 .btn:hover:not(:disabled) { border-color: var(--info-line); color: var(--info); background: var(--panel-3); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn.primary { background: var(--accent-bg); border-color: var(--accent-line); color: var(--accent); }
-.btn.primary:hover:not(:disabled) { background: #0b5f58; }
+.btn.primary:hover:not(:disabled) { background: rgba(20, 184, 166, 0.24); }
 .btn.danger { background: var(--crit-bg); border-color: var(--crit-line); color: var(--crit); }
-.btn.danger:hover:not(:disabled) { background: #241015; }
+.btn.danger:hover:not(:disabled) { background: rgba(239, 68, 68, 0.24); }
 .btn.warn { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn); }
 .btn.ghost { background: transparent; }
 .btn.sm { height: 25px; padding: 0 9px; font-size: 9.5px; }
@@ -779,7 +781,7 @@ input.inp[type="file"] { padding: 6px 10px; height: auto; cursor: pointer; }
 .lockdown-banner {
   display: flex; align-items: center; gap: 14px;
   padding: 11px 18px;
-  background: repeating-linear-gradient(135deg, var(--crit-bg) 0 14px, #1f0c10 14px 28px);
+  background: repeating-linear-gradient(135deg, var(--crit-bg) 0 14px, #2a1114 14px 28px);
   border-bottom: 1px solid var(--crit-line);
   animation: fade 200ms ease;
 }
