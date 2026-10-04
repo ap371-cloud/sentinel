@@ -28,7 +28,9 @@ class LedgerBlock(LedgerBase):
     #: this exact string, and a datetime round-trip through SQLite drops the
     #: timezone offset, which would silently invalidate every stored hash.
     timestamp: Mapped[str] = mapped_column(Text)
-    proposer_id: Mapped[str] = mapped_column(String(16), index=True)
+    #: 32, not 16: the genesis block is proposed by "SENTINEL-CONSORTIUM", and
+    #: SQLite ignores a declared length where PostgreSQL raises on overflow.
+    proposer_id: Mapped[str] = mapped_column(String(32), index=True)
     certificate: Mapped[str] = mapped_column(Text, default="[]")
     signature_algorithm: Mapped[str] = mapped_column(String(32))
     block_signature: Mapped[str] = mapped_column(Text)

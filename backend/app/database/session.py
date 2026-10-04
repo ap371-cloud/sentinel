@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -12,8 +13,23 @@ from ..core.config import PATHS, SETTINGS
 
 OPS_DB = PATHS.data / "forge.db"
 
+#: Set this to a PostgreSQL URI to move the record store off the local disk.
+#: Absent it, every path below keeps using SQLite exactly as before.
+DATABASE_URL_ENV = "SENTINEL_DATABASE_URL"
+
+
+def postgres_url() -> str | None:
+    return os.getenv(DATABASE_URL_ENV) or None
+
 
 def _engine_for(path: Path) -> Engine:
+    url = postgres_url()
+    if url:
+        # Serverless instances come and go, and each one builds its own pool.
+        # A wide per-process pool would burn Supabase's connection budget once
+        # Vercel keeps more than one instance warm, so stay deliberately narrow.
+        return create_engine(url, future=True, pool_pre_ping=True, pool_size=1, max_overflow=2)
+
     engine = create_engine(
         f"sqlite:///{path.as_posix()}",
         future=True,
@@ -31,6 +47,26 @@ def _engine_for(path: Path) -> Engine:
     return engine
 
 
+def _schema_engine(schema: str) -> Engine:
+    """Gives one ledger node its own PostgreSQL schema.
+
+    A separate schema rather than a separate database: Supabase provisions a
+    single database, and the node isolation this project relies on is about a
+    store an attacker cannot reach through the others, not about the process.
+    """
+    engine = create_engine(
+        postgres_url(),
+        future=True,
+        pool_pre_ping=True,
+        pool_size=1,
+        max_overflow=2,
+        connect_args={"options": f"-csearch_path={schema},public"},
+    )
+    with engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+    return engine
+
+
 ops_engine = _engine_for(OPS_DB)
 OpsSession = sessionmaker(bind=ops_engine, expire_on_commit=False, future=True)
 
@@ -42,6 +78,10 @@ def node_engine(node_id: str) -> Engine:
     separation is what lets the system detect a single-node tamper instead of
     trusting one shared store."""
     if node_id not in _node_engines:
+        if postgres_url():
+            _node_engines[node_id] = _schema_engine(f"node_{node_id.replace('-', '_').lower()}")
+            return _node_engines[node_id]
+
         folder = PATHS.ledger / node_id.replace("-", "_").lower()
         folder.mkdir(parents=True, exist_ok=True)
         _node_engines[node_id] = _engine_for(folder / "ledger.db")
@@ -100,15 +140,45 @@ def _install_append_only_guards(engine: Engine) -> None:
         if table not in present:
             continue
         column_list = ", ".join(columns)
-        statements = (
-            f"CREATE TRIGGER IF NOT EXISTS immutable_update_{table} BEFORE UPDATE OF {column_list} ON {table} "
-            f"BEGIN SELECT RAISE(ABORT, '{table}: these columns are immutable'); END",
-            f"CREATE TRIGGER IF NOT EXISTS immutable_delete_{table} BEFORE DELETE ON {table} "
-            f"BEGIN SELECT RAISE(ABORT, '{table} is append-only: DELETE denied'); END",
-        )
+        if engine.dialect.name == "postgresql":
+            statements = _postgres_guard_statements(table, column_list)
+        else:
+            statements = (
+                f"CREATE TRIGGER IF NOT EXISTS immutable_update_{table} BEFORE UPDATE OF {column_list} ON {table} "
+                f"BEGIN SELECT RAISE(ABORT, '{table}: these columns are immutable'); END",
+                f"CREATE TRIGGER IF NOT EXISTS immutable_delete_{table} BEFORE DELETE ON {table} "
+                f"BEGIN SELECT RAISE(ABORT, '{table} is append-only: DELETE denied'); END",
+            )
         with engine.begin() as connection:
             for statement in statements:
                 connection.execute(text(statement))
+
+
+#: PostgreSQL has no RAISE(ABORT); an exception with a restrict violation code is
+#: the equivalent, and the per-table triggers are dropped and recreated by the
+#: attack lab, which is why the function is CREATE OR REPLACE.
+_POSTGRES_GUARD_FN = """
+CREATE OR REPLACE FUNCTION sentinel_append_only_guard() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION '% is append-only: % denied', TG_TABLE_NAME, TG_OP
+        USING ERRCODE = 'restrict_violation';
+END;
+$$ LANGUAGE plpgsql;
+"""
+
+
+def _postgres_guard_statements(table: str, column_list: str) -> tuple[str, ...]:
+    # PostgreSQL has no CREATE TRIGGER IF NOT EXISTS, and bootstrap runs on every
+    # cold start, so the triggers are dropped before they are recreated.
+    return (
+        _POSTGRES_GUARD_FN,
+        f"DROP TRIGGER IF EXISTS immutable_update_{table} ON {table}",
+        f"DROP TRIGGER IF EXISTS immutable_delete_{table} ON {table}",
+        f"CREATE TRIGGER immutable_update_{table} BEFORE UPDATE OF {column_list} ON {table} "
+        f"FOR EACH ROW EXECUTE FUNCTION sentinel_append_only_guard()",
+        f"CREATE TRIGGER immutable_delete_{table} BEFORE DELETE ON {table} "
+        f"FOR EACH ROW EXECUTE FUNCTION sentinel_append_only_guard()",
+    )
 
 
 @contextmanager
