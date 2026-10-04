@@ -30,11 +30,23 @@ export function CommandCenter({ onNavigate, onLockdownChanged }: {
 
     setLocking(true);
     try {
-      await api.post(active ? endpoints.unlock : endpoints.lockdown, { reason });
-      toast.success(
-        active ? "Lockdown released" : "Emergency lockdown engaged",
-        "The backend confirmed the new state.",
-      );
+      if (active) {
+        // Lifting a lockdown needs two signatures from identities that did not raise
+        // it, so the button raises the request rather than firing an unlock that
+        // the backend will always refuse.
+        const raised = await api.post<{ approval_id: string }>(endpoints.approvals, {
+          action: "EMERGENCY_ACCESS",
+          justification: reason,
+          required_approvals: 2,
+        });
+        toast.success(
+          `Release request ${raised.approval_id} raised`,
+          "Two approvers must sign before decryption resumes. The requester cannot approve it.",
+        );
+      } else {
+        await api.post(endpoints.lockdown, { reason });
+        toast.success("Emergency lockdown engaged", "The backend confirmed the new state.");
+      }
       lockdown.reload();
       onLockdownChanged();
     } catch (e) {
@@ -74,7 +86,7 @@ export function CommandCenter({ onNavigate, onLockdownChanged }: {
               onClick={toggleLockdown}
               disabled={locking}
             >
-              {locking ? "Working…" : isLocked ? "⏻ Release lockdown" : "⚑ Engage lockdown"}
+              {locking ? "Working…" : isLocked ? "⏻ Request release" : "⚑ Engage lockdown"}
             </button>
           </>
         }

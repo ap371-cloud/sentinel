@@ -10,15 +10,19 @@ import {
 } from "../components/ui";
 import { IdentBadge, QuorumChip } from "../components/layout";
 
-export function Ledger() {
+export function Ledger({ permissions }: { permissions: string[] }) {
   const toast = useToast();
+  const mayVerify = permissions.includes("ledger.verify");
   const status = useAsync<LedgerStatus>(() => api.get<LedgerStatus>(endpoints.ledgerStatus), []);
-  const verify = useAsync<LedgerVerification>(() => api.get<LedgerVerification>(endpoints.ledgerVerify), []);
+  const verify = useAsync<LedgerVerification | null>(
+    () => (mayVerify ? api.get<LedgerVerification>(endpoints.ledgerVerify) : Promise.resolve(null)),
+    [mayVerify],
+  );
   const blocks = useAsync<{ blocks: Block[] }>(() => api.get(endpoints.ledgerBlocks), []);
   const [syncOpen, setSyncOpen] = useState(false);
 
   const nodes = status.data?.nodes ?? [];
-  const canVerify = !verify.error;
+  const canVerify = mayVerify && !verify.error;
 
   if (status.loading && !status.data) return <LoadingState label="Loading ledger status" detail="GET /ledger/status" />;
   if (status.error) {
@@ -94,7 +98,12 @@ export function Ledger() {
 
         <Panel title="Independent chain verification" actions={verify.loading ? <Badge tone="info">RUNNING</Badge> : null}>
           {verify.loading && !verify.data ? <LoadingState label="Verifying every block and Merkle proof" /> : null}
-          {!canVerify && !verify.loading ? (
+          {!mayVerify ? (
+            <Notice tone="idle" title="Verification held by separation of duties">
+              Independent chain verification is reserved for AUDITOR and LEDGER_OPERATOR identities. Your
+              role can read every block and transaction, but cannot attest to the chain it is reading.
+            </Notice>
+          ) : !canVerify && !verify.loading ? (
             <Unauthorized error={verify.error} onLogin={() => window.location.reload()} />
           ) : null}
 

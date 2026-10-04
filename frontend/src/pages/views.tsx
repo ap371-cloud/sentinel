@@ -68,8 +68,8 @@ export function LedgerView({ permissions }: { permissions: string[] }) {
     <Hub
       permissions={permissions}
       tabs={[
-        { id: "blocks", label: "Blocks & Transactions", needs: ["ledger.read"], render: () => <Ledger /> },
-        { id: "nodes", label: "Nodes & Verify", needs: ["ledger.read", "ledger.verify"], render: () => <Nodes /> },
+        { id: "blocks", label: "Blocks & Transactions", needs: ["ledger.read"], render: () => <Ledger permissions={permissions} /> },
+        { id: "nodes", label: "Nodes & Operations", needs: ["ledger.read", "ledger.admin"], render: () => <Nodes /> },
       ]}
     />
   );
