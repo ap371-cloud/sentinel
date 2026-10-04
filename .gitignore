@@ -1,8 +1,10 @@
 # Runtime state — regenerable, never committed.
-data/
-keys/
-ledger/
-evidence/
+# Anchored to the repo root: an unanchored "ledger/" also swallows the
+# backend/app/ledger source package.
+/data/
+/keys/
+/ledger/
+/evidence/
 
 # Python
 .venv/
