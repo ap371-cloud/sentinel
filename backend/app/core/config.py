@@ -193,7 +193,7 @@ HIGH_RISK_ACTIONS = (
 
 @dataclass(frozen=True)
 class Paths:
-    root: Path = PROJECT_ROOT
+    root: Path = Path(os.getenv("SENTINEL_DATA_ROOT", str(PROJECT_ROOT)))
 
     @property
     def data(self) -> Path:
