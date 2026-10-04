@@ -369,3 +369,46 @@ class TestTwoPersonControl:
                 approver_id="LEDGER-001",
                 approver_role=Role.LEDGER_OPERATOR,
             )
+
+
+class TestTokenIssuerAcrossProcesses:
+    """A token must survive being minted by one process and read by another.
+
+    Serverless deployments run the API in many short-lived processes, so a
+    signing secret that is random per process silently logs users out.
+    """
+
+    def test_pinned_secret_is_shared_between_issuers(self, monkeypatch):
+        from app.core.security import TOKEN_SECRET_ENV, TokenIssuer
+
+        monkeypatch.setenv(TOKEN_SECRET_ENV, "unit-test-pinned-secret")
+        token = TokenIssuer().issue(
+            subject="COMMANDER-001", role="COMMANDER", unit="ALPHA", clearance=4
+        )
+
+        assert TokenIssuer().read(token).subject == "COMMANDER-001"
+
+    def test_unpinned_secret_is_rejected_by_another_issuer(self, monkeypatch):
+        from app.core.security import TOKEN_SECRET_ENV, TokenIssuer
+        from app.core.exceptions import AuthenticationError
+
+        monkeypatch.delenv(TOKEN_SECRET_ENV, raising=False)
+        token = TokenIssuer().issue(
+            subject="COMMANDER-001", role="COMMANDER", unit="ALPHA", clearance=4
+        )
+
+        with pytest.raises(AuthenticationError):
+            TokenIssuer().read(token)
+
+    def test_a_different_pinned_secret_does_not_verify(self, monkeypatch):
+        from app.core.security import TOKEN_SECRET_ENV, TokenIssuer
+        from app.core.exceptions import AuthenticationError
+
+        monkeypatch.setenv(TOKEN_SECRET_ENV, "one-deployment-secret")
+        token = TokenIssuer().issue(
+            subject="COMMANDER-001", role="COMMANDER", unit="ALPHA", clearance=4
+        )
+        monkeypatch.setenv(TOKEN_SECRET_ENV, "another-deployment-secret")
+
+        with pytest.raises(AuthenticationError):
+            TokenIssuer().read(token)

@@ -16,6 +16,7 @@ from ..crypto.hashing import b64d, b64e, canonical_bytes
 
 TOKEN_TTL_SECONDS = 8 * 3600
 PBKDF2_ALGORITHM = "pbkdf2_sha256"
+TOKEN_SECRET_ENV = "FORGE_TOKEN_SECRET"
 
 
 def hash_password(password: str, *, salt: bytes | None = None, iterations: int | None = None) -> tuple[str, str]:
@@ -23,6 +24,19 @@ def hash_password(password: str, *, salt: bytes | None = None, iterations: int |
     rounds = iterations or SETTINGS.pbkdf2_iterations
     derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, rounds, dklen=32)
     return f"{PBKDF2_ALGORITHM}${rounds}${b64e(salt)}${b64e(derived)}", b64e(salt)
+
+
+def _signing_secret() -> bytes:
+    """Resolves the HMAC key that signs bearer tokens.
+
+    A pinned secret is mandatory the moment more than one process can serve the
+    API: a per-process random secret means every restart or serverless cold start
+    silently invalidates tokens issued by the previous process, which surfaces to
+    users as random logouts.
+    """
+    pinned = os.getenv(TOKEN_SECRET_ENV)
+    material = pinned.encode("utf-8") if pinned else os.urandom(32)
+    return hashlib.sha256(b"forge-token-signing:" + material).digest()
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
@@ -66,7 +80,7 @@ class TokenIssuer:
     immediately even though the token itself has not expired."""
 
     def __init__(self, secret: bytes | None = None):
-        self._secret = secret or hashlib.sha256(b"forge-token-signing:" + os.urandom(32)).digest()
+        self._secret = secret or _signing_secret()
 
     def issue(self, *, subject: str, role: str, unit: str, clearance: int, ttl: int = TOKEN_TTL_SECONDS) -> str:
         now = int(time.time())

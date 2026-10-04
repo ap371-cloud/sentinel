@@ -11,7 +11,7 @@ __pycache__/
 .pytest_cache/
 
 # Frontend
-frontend/node_modules/
+node_modules/
 frontend/dist/
 
 # Editors
