@@ -146,6 +146,13 @@ class TestPayloadCoding:
         _, _, check_ok = decode_payload(bits)
         assert check_ok is False
 
+    def test_leading_zero_nibbles_survive_the_round_trip(self):
+        # A tag is compared as a string, not as a number, so a dropped leading
+        # zero reads as a different tag and the match is lost.
+        for tag in ("0abc1234567890ab", "00ff0000deadbeef", "0000000000000001"):
+            recovered, _, check_ok = decode_payload(encode_payload(tag))
+            assert recovered == tag and check_ok
+
     def test_hamming_distance(self):
         assert hamming("0000000000000000", "0000000000000000") == 0
         assert hamming("0000000000000000", "0000000000000001") == 1

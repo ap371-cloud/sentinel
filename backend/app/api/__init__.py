@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, FastAPI
 
 from ..database.session import ops_session
@@ -19,10 +21,15 @@ def register_routes(app: FastAPI) -> None:
         from ..core.config import SETTINGS
         from ..crypto.pqc import PQC
 
+        failure = getattr(app.state, "bootstrap_error", None)
         return {
-            "status": "UP",
+            "status": "DEGRADED" if failure else "UP",
             "service": SETTINGS.short_name,
             "version": "1.0.0",
+            "record_store": (
+                "postgresql" if os.getenv("SENTINEL_DATABASE_URL") else "sqlite"
+            ),
+            "startup_error": failure,
             "post_quantum": {
                 "signing": PQC.metadata.signing_algorithm,
                 "kem": PQC.metadata.kem_algorithm,

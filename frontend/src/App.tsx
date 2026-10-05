@@ -153,7 +153,7 @@ function View({ page, permissions, onNavigate, onLockdownChanged }: {
     case "ledger": return <LedgerView permissions={permissions} />;
     case "oversight": return <OversightView permissions={permissions} />;
     case "command":
-      return <CommandCenter onNavigate={onNavigate} onLockdownChanged={onLockdownChanged} />;
+      return <CommandCenter permissions={permissions} onNavigate={onNavigate} onLockdownChanged={onLockdownChanged} />;
     default:
       return (
         <EmptyState

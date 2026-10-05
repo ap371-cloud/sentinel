@@ -9,7 +9,8 @@ import {
   VerificationStep, useAsync, useToast, type StepState,
 } from "../components/ui";
 
-export function CommandCenter({ onNavigate, onLockdownChanged }: {
+export function CommandCenter({ permissions, onNavigate, onLockdownChanged }: {
+  permissions: string[];
   onNavigate: (id: string) => void;
   onLockdownChanged: () => void;
 }) {
@@ -108,10 +109,10 @@ export function CommandCenter({ onNavigate, onLockdownChanged }: {
 
       <div className="grid g-3-2">
         <RecentDecryptions dashboard={d} onNavigate={onNavigate} />
-        <LedgerAgreement />
+        <LedgerAgreement mayVerify={permissions.includes("ledger.verify")} />
       </div>
 
-      <ForensicPipeline onNavigate={onNavigate} />
+      <ForensicPipeline onNavigate={onNavigate} mayAnalyze={permissions.includes("forensics.analyze")} />
 
       <TopologyStrip topology={d.topology} />
 
@@ -268,12 +269,13 @@ function RecentDecryptions({ dashboard, onNavigate }: { dashboard: Dashboard; on
 
 /* ------------------------------------------------------- ledger agreement */
 
-function LedgerAgreement() {
+function LedgerAgreement({ mayVerify }: { mayVerify: boolean }) {
   const [verify, setVerify] = useState<LedgerVerification | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
 
   const run = useCallback(async () => {
+    if (!mayVerify) return;
     setBusy(true);
     setErr(null);
     try {
@@ -283,9 +285,21 @@ function LedgerAgreement() {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [mayVerify]);
 
   useEffect(() => { run(); }, [run]);
+
+  if (!mayVerify) {
+    return (
+      <Panel title="Ledger verification">
+        <Notice tone="idle" title="Attestation reserved by separation of duties">
+          Independent chain verification is held by AUDITOR, LEDGER_OPERATOR and INVESTIGATOR
+          identities. Your role reads the ledger agreement reported in Security posture, but
+          cannot attest to the chain itself.
+        </Notice>
+      </Panel>
+    );
+  }
 
   return (
     <Panel
@@ -309,7 +323,7 @@ function LedgerAgreement() {
           <Pipeline>
             {verify.nodes.map((n) => {
               const state: StepState = n.first_failing_height !== null ? "fail"
-                : n.status === "HEALTHY" || n.status === "SYNCED" ? "pass" : "partial";
+                : n.status === "VERIFIED" ? "pass" : "partial";
               return (
                 <VerificationStep
                   key={n.node_id}
@@ -343,7 +357,10 @@ function LedgerAgreement() {
 
 /* ----------------------------------------------------- forensic pipeline */
 
-function ForensicPipeline({ onNavigate }: { onNavigate: (id: string) => void }) {
+function ForensicPipeline({ onNavigate, mayAnalyze }: {
+  onNavigate: (id: string) => void;
+  mayAnalyze: boolean;
+}) {
   const toast = useToast();
   const [file, setFile] = useState<File | null>(null);
   const [caseId, setCaseId] = useState("");
@@ -393,6 +410,23 @@ function ForensicPipeline({ onNavigate }: { onNavigate: (id: string) => void }) 
   };
 
   const busy = phase !== "idle" && phase !== "done";
+
+  if (!mayAnalyze) {
+    return (
+      <Panel
+        title="Forensic verification pipeline"
+        actions={
+          <button className="btn sm" onClick={() => onNavigate("forensics")}>Full console →</button>
+        }
+      >
+        <Notice tone="idle" title="Analysis reserved for investigator identities">
+          Recovering a watermark, sealing it as evidence and opening a case are held by
+          INVESTIGATOR identities, so the identity that orders the analysis can never be the one
+          that attests to its result. Hand the artefact to the forensics console.
+        </Notice>
+      </Panel>
+    );
+  }
 
   return (
     <Panel

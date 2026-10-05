@@ -93,7 +93,16 @@ def _reseed_identifiers(session: Session) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.bootstrap = bootstrap()
+    # A misconfigured record store must not take the whole surface down. When
+    # bootstrap raises, the process used to exit and every route answered an
+    # opaque 500, which is indistinguishable from a code fault. Keeping the app
+    # up lets /api/health name the actual cause.
+    app.state.bootstrap_error = None
+    try:
+        app.state.bootstrap = bootstrap()
+    except Exception as exc:
+        app.state.bootstrap_error = f"{type(exc).__name__}: {exc}"
+        logger.error("bootstrap failed, serving in a degraded state — %s", app.state.bootstrap_error)
     app.state.egress = EGRESS.status()
     yield
     logger.info("sentinel shutting down")

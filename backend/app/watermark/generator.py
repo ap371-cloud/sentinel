@@ -100,7 +100,7 @@ def decode_payload(bits: np.ndarray) -> tuple[str, int, bool]:
     observed = 0
     for bit in check_bits:
         observed = (observed << 1) | int(bit)
-    return f"{value:0{len(tag_hex_digits())}x}", int(tag_bits.sum()), expected == observed
+    return f"{value:0{tag_hex_digits()}x}", int(tag_bits.sum()), expected == observed
 
 
 def tag_hex_digits() -> str:

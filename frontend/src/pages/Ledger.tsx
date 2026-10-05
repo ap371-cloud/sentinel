@@ -112,7 +112,7 @@ export function Ledger({ permissions }: { permissions: string[] }) {
               <Pipeline>
                 {verify.data.nodes.map((n) => {
                   const state: StepState = n.first_failing_height !== null ? "fail"
-                    : n.status === "HEALTHY" || n.status === "SYNCED" ? "pass" : "partial";
+                    : n.status === "VERIFIED" ? "pass" : "partial";
                   return (
                     <VerificationStep
                       key={n.node_id}
