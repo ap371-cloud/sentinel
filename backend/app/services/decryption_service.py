@@ -22,7 +22,7 @@ from ..core.permissions import (
 from ..core.rights import effective_rights, require_right
 from ..crypto.hashing import b64e, canonical_bytes, sha256_hex
 from ..crypto.signatures import event_payload, sign_as_recipient
-from ..documents import encryption
+from ..documents import encryption, protection
 from ..ledger.block import Transaction as LedgerTransaction
 from ..models.documents import Document, DocumentVersion
 from ..models.identity import Device, KeyMetadata, Recipient
@@ -334,6 +334,18 @@ def decrypt(
         detail={"status": ledger["status"], "block_id": ledger.get("block_id")},
     )
 
+    receipt = protection.build_receipt(
+        document=document,
+        version=version,
+        recipient_id=actor.recipient_id,
+        device_id=device_id,
+        session_id=session_id,
+        watermark_tag=tag,
+        event=event,
+        rights_matrix=effective_rights(document),
+    )
+    protection_info = protection.attach(output_path, receipt)
+
     return {
         "session_id": session_id,
         "document_id": document_id,
@@ -353,6 +365,7 @@ def decrypt(
         "break_glass": break_glass,
         "authorization_checks": decision.trace(),
         "decrypted_at": decryption_session.completed_at.isoformat(timespec="seconds"),
+        "persistent_protection": protection_info,
         "viewer_note": (
             "Production deployment would require a hardened endpoint and a controlled viewer. This "
             "prototype writes a watermarked copy to the recipient's session directory, which is a "

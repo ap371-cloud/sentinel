@@ -16,7 +16,7 @@ from ..core.exceptions import ForgeError, NotFound
 from ..core import rights
 from ..crypto.hashing import file_digest_bundle
 from ..database import shared as shared_store
-from ..documents import encryption, pdf
+from ..documents import encryption, pdf, protection
 from ..models.documents import Document, DocumentVersion, OfflineGrant, RecipientGrant
 from ..models.identity import Recipient
 from ..models.sessions import DecryptionSession
@@ -575,6 +575,16 @@ def describe(session: Session, document_id: str) -> dict[str, Any]:
                 for g in leases
             ],
             "crypto": encryption.crypto_note(),
+            "persistent_protection": {
+                "policy_receipt_on_every_copy": True,
+                "travels_with_file": [
+                    "embedded policy receipt (JSON) written at each decryption",
+                    "classification and session stamps in document info",
+                    "invisible forensic watermark",
+                    "visible deterrent text where enabled",
+                ],
+                "limitation": protection.LIMITATION,
+            },
         }
     )
     return out
