@@ -151,6 +151,16 @@ class AuditRecord(Base):
     record_hash: Mapped[str] = mapped_column(String(64), index=True)
     prev_record_hash: Mapped[str] = mapped_column(String(64))
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    #: Query-first copies of fields the detail payload also carries. Old rows
+    #: leave these NULL, which keeps their recorded hash intact; the hash of a
+    #: new row covers whichever of these is populated.
+    device_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    document_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    document_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(40), nullable=True, index=True)
+    policy_version: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    severity: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, index=True)
 
 
 class SystemState(Base):

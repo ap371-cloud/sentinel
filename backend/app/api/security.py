@@ -480,10 +480,38 @@ def watermark_engine(session: Session = Depends(db), _: Recipient = Depends(curr
 
 
 @router.get("/audit")
-def audit(session: Session = Depends(db), _: Recipient = Depends(readable("audit.read")), limit: int = 60) -> dict[str, Any]:
+def audit(
+    session: Session = Depends(db),
+    _: Recipient = Depends(readable("audit.read")),
+    limit: int = 60,
+    actor_id: str | None = None,
+    action: str | None = None,
+    target_id: str | None = None,
+    device_id: str | None = None,
+    document_id: str | None = None,
+    severity: str | None = None,
+    policy_version: str | None = None,
+    session_id: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> dict[str, Any]:
     """Privileged-action trail. Append-only and hash-chained, so removing an
-    entry breaks the chain instead of hiding it."""
-    return command_service.audit_trail(session, limit=min(limit, 300))
+    entry breaks the chain instead of hiding it. Filtering never weakens the
+    chain verification, it only narrows which records are returned."""
+    return command_service.audit_trail(
+        session,
+        limit=min(limit, 300),
+        actor_id=actor_id,
+        action=action,
+        target_id=target_id,
+        device_id=device_id,
+        document_id=document_id,
+        severity=severity,
+        policy_version=policy_version,
+        session_id=session_id,
+        since=since,
+        until=until,
+    )
 
 
 # ---- local AI (optional) ----------------------------------------------------

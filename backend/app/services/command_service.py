@@ -380,11 +380,50 @@ def anomaly_catalogue(session: Session) -> dict[str, Any]:
     }
 
 
-def audit_trail(session: Session, limit: int = 60) -> dict[str, Any]:
+def audit_trail(
+    session: Session,
+    limit: int = 60,
+    *,
+    actor_id: str | None = None,
+    action: str | None = None,
+    target_id: str | None = None,
+    device_id: str | None = None,
+    document_id: str | None = None,
+    session_id: str | None = None,
+    severity: str | None = None,
+    policy_version: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> dict[str, Any]:
     return {
         "chain": audit_service.verify_chain(session),
-        "privileged_actions": audit_service.recent(session, limit=limit),
+        "privileged_actions": audit_service.search(
+            session,
+            limit=limit,
+            actor_id=actor_id,
+            action=action,
+            target_id=target_id,
+            device_id=device_id,
+            document_id=document_id,
+            session_id=session_id,
+            severity=severity,
+            policy_version=policy_version,
+            since=since,
+            until=until,
+        ),
         "categories": list(audit_service.PRIVILEGED_ACTIONS),
+        "filters_applied": {
+            "actor_id": actor_id,
+            "action": action,
+            "target_id": target_id,
+            "device_id": device_id,
+            "document_id": document_id,
+            "session_id": session_id,
+            "severity": severity,
+            "policy_version": policy_version,
+            "since": since,
+            "until": until,
+        },
         "note": (
             "Records are append-only and hash-chained. Updating or deleting any entry breaks the chain "
             "and is detected."

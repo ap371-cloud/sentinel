@@ -113,6 +113,13 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("policies", "policy_hash", "VARCHAR(64)"),
     ("approval_requests", "policy_version", "VARCHAR(24)"),
     ("revocations", "policy_version", "VARCHAR(24)"),
+    ("audit_records", "device_id", "VARCHAR(64)"),
+    ("audit_records", "document_id", "VARCHAR(64)"),
+    ("audit_records", "document_hash", "VARCHAR(64)"),
+    ("audit_records", "session_id", "VARCHAR(40)"),
+    ("audit_records", "policy_version", "VARCHAR(24)"),
+    ("audit_records", "reason", "TEXT"),
+    ("audit_records", "severity", "VARCHAR(16)"),
 )
 
 

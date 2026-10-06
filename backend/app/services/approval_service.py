@@ -442,6 +442,9 @@ def update_policy(
             "reason": reason,
             "approval_id": approval_id,
         },
+        policy_version=new_version,
+        reason=reason,
+        severity="MEDIUM",
     )
     incident_engine.raise_event(
         session,

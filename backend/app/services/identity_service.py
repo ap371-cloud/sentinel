@@ -186,6 +186,7 @@ def authenticate(
             target_type="RECIPIENT",
             target_id=recipient_id,
             outcome="DENIED",
+            severity="WARN",
         )
         raise AuthenticationError("Identity or passphrase not recognised.")
 
@@ -215,6 +216,7 @@ def authenticate(
             target_id=recipient_id,
             outcome="DENIED",
             detail={"status": recipient.status},
+            severity="WARN",
         )
         raise AuthorizationDenied(
             f"This account is {recipient.status}; it cannot be used to sign in.",

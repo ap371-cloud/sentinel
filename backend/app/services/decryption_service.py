@@ -327,6 +327,12 @@ def decrypt(
             "ledger_tx_id": event.ledger_tx_id,
             "break_glass": break_glass,
         },
+        document_id=document_id,
+        document_hash=version.content_sha256,
+        device_id=device_id,
+        session_id=session_id,
+        policy_version=SETTINGS.policy_version,
+        severity="INFO",
     )
     audit_service.record(
         session,
@@ -473,6 +479,9 @@ def _observe_denial(
         target_id=document.document_id,
         outcome="DENIED",
         detail={"reason_code": decision.reason_code},
+        document_id=document.document_id,
+        reason=decision.reason_code,
+        severity="WARN",
     )
     verdict = anomaly_detection.repeated_denials(session, actor.recipient_id)
     if verdict.triggered and not incident_engine.has_open_event(session, "REPEATED_DENIALS", actor.recipient_id):

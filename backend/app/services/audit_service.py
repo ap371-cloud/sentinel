@@ -56,6 +56,24 @@ def _utc(moment: datetime) -> datetime:
     return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
+#: Structured, filterable columns. Only populated values are folded into the
+#: record hash, which is what keeps an upgraded database with legacy rows
+#: verifiable while still covering the new fields on fresh records.
+STRUCTURED = ("device_id", "document_id", "document_hash", "session_id", "policy_version", "reason", "severity")
+
+
+def _structured_from(detail: dict[str, Any]) -> dict[str, str]:
+    return {
+        "document_id": detail.get("document_id") or None,
+        "device_id": detail.get("device_id") or None,
+        "session_id": detail.get("session_id") or None,
+        "document_hash": detail.get("document_hash") or None,
+        "policy_version": detail.get("policy_version") or None,
+        "reason": detail.get("reason_code") or detail.get("reason") or None,
+        "severity": detail.get("severity") or None,
+    }
+
+
 def record(
     session: Session,
     *,
@@ -66,6 +84,13 @@ def record(
     target_id: str | None = None,
     outcome: str = "SUCCESS",
     detail: dict[str, Any] | None = None,
+    device_id: str | None = None,
+    document_id: str | None = None,
+    document_hash: str | None = None,
+    session_id: str | None = None,
+    policy_version: str | None = None,
+    reason: str | None = None,
+    severity: str | None = None,
 ) -> str:
     """Appends one privileged-action record to the hash-chained audit log.
 
@@ -80,6 +105,19 @@ def record(
     previous = chain_head(session)
     audit_id = _next_audit_id(session)
     moment = datetime.now(timezone.utc)
+    explicit = {
+        "device_id": device_id,
+        "document_id": document_id,
+        "document_hash": document_hash,
+        "session_id": session_id,
+        "policy_version": policy_version,
+        "reason": reason,
+        "severity": severity,
+    }
+    inferred = _structured_from(detail or {})
+    if target_type == "DECRYPTION_SESSION" and target_id and not inferred["session_id"]:
+        inferred["session_id"] = target_id
+    structured = {key: explicit[key] if explicit[key] is not None else inferred.get(key) for key in STRUCTURED}
     payload = {
         "audit_id": audit_id,
         "actor_id": actor_id,
@@ -91,12 +129,13 @@ def record(
         "detail": detail or {},
         "occurred_at": moment.isoformat(timespec="seconds"),
     }
+    payload.update({key: value for key, value in structured.items() if value})
     session.add(
         AuditRecord(
-        audit_id=audit_id,
-        actor_id=actor_id,
-        actor_role=resolved_role,
-        action=action,
+            audit_id=audit_id,
+            actor_id=actor_id,
+            actor_role=resolved_role,
+            action=action,
             target_type=target_type,
             target_id=target_id,
             outcome=outcome,
@@ -104,6 +143,13 @@ def record(
             record_hash=_record_hash(payload, previous),
             prev_record_hash=previous,
             occurred_at=moment,
+            device_id=structured["device_id"],
+            document_id=structured["document_id"],
+            document_hash=structured["document_hash"],
+            session_id=structured["session_id"],
+            policy_version=structured["policy_version"],
+            reason=structured["reason"],
+            severity=structured["severity"],
         )
     )
     return audit_id
@@ -165,6 +211,9 @@ def verify_chain(session: Session) -> dict[str, Any]:
             "detail": json.loads(row.detail or "{}"),
             "occurred_at": _utc(row.occurred_at).isoformat(timespec="seconds"),
         }
+        payload.update(
+            {key: getattr(row, key) for key in STRUCTURED if getattr(row, key) is not None}
+        )
         if row.prev_record_hash != previous or _record_hash(payload, previous) != row.record_hash:
             broken_at = row.audit_id
             break
@@ -181,25 +230,81 @@ def verify_chain(session: Session) -> dict[str, Any]:
     }
 
 
+def _row_to_dict(row: AuditRecord) -> dict[str, Any]:
+    return {
+        "audit_id": row.audit_id,
+        "actor_id": row.actor_id,
+        "actor_role": row.actor_role,
+        "action": row.action,
+        "target_type": row.target_type,
+        "target_id": row.target_id,
+        "outcome": row.outcome,
+        "detail": json.loads(row.detail or "{}"),
+        "occurred_at": _utc(row.occurred_at).isoformat(timespec="seconds"),
+        "record_hash": row.record_hash,
+        "prev_record_hash": row.prev_record_hash,
+        "device_id": row.device_id,
+        "document_id": row.document_id,
+        "document_hash": row.document_hash,
+        "session_id": row.session_id,
+        "policy_version": row.policy_version,
+        "reason": row.reason,
+        "severity": row.severity,
+    }
+
+
 def recent(session: Session, limit: int = 50) -> list[dict[str, Any]]:
     rows = list(
         session.execute(select(AuditRecord).order_by(AuditRecord.occurred_at.desc()).limit(limit)).scalars()
     )
-    out = []
-    for row in reversed(rows):
-        out.append(
-            {
-                "audit_id": row.audit_id,
-                "actor_id": row.actor_id,
-                "actor_role": row.actor_role,
-                "action": row.action,
-                "target_type": row.target_type,
-                "target_id": row.target_id,
-                "outcome": row.outcome,
-                "detail": json.loads(row.detail or "{}"),
-                "occurred_at": _utc(row.occurred_at).isoformat(timespec="seconds"),
-                "record_hash": row.record_hash,
-                "prev_record_hash": row.prev_record_hash,
-            }
-        )
-    return out
+    return [_row_to_dict(row) for row in reversed(rows)]
+
+
+def search(
+    session: Session,
+    *,
+    limit: int = 100,
+    actor_id: str | None = None,
+    action: str | None = None,
+    target_id: str | None = None,
+    device_id: str | None = None,
+    document_id: str | None = None,
+    session_id: str | None = None,
+    severity: str | None = None,
+    policy_version: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+) -> list[dict[str, Any]]:
+    """Filtered, newest-first trail query. The hash chain still verifies over
+    everything returned, so filters cannot hide a tamper."""
+    from datetime import datetime
+
+    statement = select(AuditRecord)
+    if actor_id is not None:
+        statement = statement.where(AuditRecord.actor_id == actor_id)
+    if action is not None:
+        statement = statement.where(AuditRecord.action == action)
+    if target_id is not None:
+        statement = statement.where(AuditRecord.target_id == target_id)
+    if device_id is not None:
+        statement = statement.where(AuditRecord.device_id == device_id)
+    if document_id is not None:
+        statement = statement.where(AuditRecord.document_id == document_id)
+    if session_id is not None:
+        statement = statement.where(AuditRecord.session_id == session_id)
+    if severity is not None:
+        statement = statement.where(AuditRecord.severity == severity)
+    if policy_version is not None:
+        statement = statement.where(AuditRecord.policy_version == policy_version)
+    if since is not None:
+        statement = statement.where(AuditRecord.occurred_at >= _parse_iso(since))
+    if until is not None:
+        statement = statement.where(AuditRecord.occurred_at <= _parse_iso(until))
+    statement = statement.order_by(AuditRecord.occurred_at.desc()).limit(min(limit, 500))
+    rows = list(session.execute(statement).scalars())
+    return [_row_to_dict(row) for row in reversed(rows)]
+
+
+def _parse_iso(value: str) -> datetime:
+    normalized = value[:-1] if value.endswith(("Z", "z")) else value
+    return datetime.fromisoformat(normalized)
