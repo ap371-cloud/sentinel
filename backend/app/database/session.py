@@ -107,6 +107,7 @@ def create_ops_schema() -> None:
 #: (sqlite: / postgres: ADD COLUMN both accept a constant default.)
 ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("documents", "rights", "TEXT NOT NULL DEFAULT '{}'"),
+    ("documents", "offline_max_hours", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
@@ -162,6 +163,10 @@ APPEND_ONLY_GUARDS: tuple[tuple[str, tuple[str, ...]], ...] = (
                         "collected_at", "analysis_tool")),
     ("watermarks", ("watermark_id", "tag", "derivation_inputs_hash", "document_hash", "session_id")),
     ("security_events", ("security_event_id", "detected_at", "category", "severity", "what_happened")),
+    ("revocations", ("revocation_id", "subject_type", "subject_id", "scope", "reason",
+                     "revoked_by", "revoked_at")),
+    ("offline_grants", ("offline_grant_id", "document_id", "recipient_id", "device_id",
+                        "granted_at", "policy_version")),
 )
 
 

@@ -14,6 +14,7 @@ from ..core.exceptions import ForgeError, NotFound
 from ..core.rights import require_right
 from ..models.documents import Document
 from ..models.identity import Recipient
+from ..security.revocation import revoke_document_access
 from ..services import approval_service, document_service
 from .deps import db, permitted, readable
 
@@ -136,6 +137,29 @@ def grant(
         recipient_id=payload.recipient_id,
         actor_id=admin.recipient_id,
         note=payload.note,
+    )
+
+
+class AccessRevokeRequest(BaseModel):
+    recipient_id: str
+    reason: str = Field(min_length=5, max_length=400)
+
+
+@router.post("/{document_id}/access/revoke")
+def revoke_access(
+    document_id: str,
+    payload: AccessRevokeRequest,
+    session: Session = Depends(db),
+    officer: Recipient = Depends(permitted("recipient.revoke")),
+) -> dict[str, Any]:
+    """Withdraws one recipient's need-to-know on this document. Any offline
+    window the recipient still holds for it dies in the same transaction."""
+    return revoke_document_access(
+        session,
+        document_id=document_id,
+        recipient_id=payload.recipient_id,
+        actor_id=officer.recipient_id,
+        reason=payload.reason,
     )
 
 

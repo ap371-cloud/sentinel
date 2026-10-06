@@ -17,7 +17,7 @@ from ..core import rights
 from ..crypto.hashing import file_digest_bundle
 from ..database import shared as shared_store
 from ..documents import encryption, pdf
-from ..models.documents import Document, DocumentVersion, RecipientGrant
+from ..models.documents import Document, DocumentVersion, OfflineGrant, RecipientGrant
 from ..models.identity import Recipient
 from ..models.sessions import DecryptionSession
 from . import audit_service
@@ -159,6 +159,11 @@ def _apply_policy(document: Document, policy: dict[str, Any]) -> None:
             setattr(document, name, bool(policy[name]))
     if policy.get("access_expiry_days"):
         document.access_expiry = _utcnow() + timedelta(days=int(policy["access_expiry_days"]))
+    if "offline_max_hours" in policy:
+        hours = int(policy["offline_max_hours"])
+        if not 0 <= hours <= 8760:
+            raise ForgeError("offline_max_hours must be between 0 (no time cap) and 8760.")
+        document.offline_max_hours = hours
     if "rights" in policy:
         overrides = policy["rights"]
         if not isinstance(overrides, dict):
@@ -369,6 +374,21 @@ def transition(
     if target == DocumentLifecycle.REVOKED:
         document.status = DocumentAccess.REVOKED
         document.revoked_at = _utcnow()
+        from ..security import offline_grants as _offline_grants
+        from ..security.revocation import record_revocation
+
+        dead_leases = _offline_grants.revoke(
+            session, document_id=document_id, actor_id=actor_id, reason=reason
+        )
+        record_revocation(
+            session,
+            subject_type="DOCUMENT",
+            subject_id=document_id,
+            scope="ALL",
+            reason=reason,
+            actor_id=actor_id,
+            cascaded_to=[f"offline_grant:{gid}" for gid in dead_leases],
+        )
     if target == DocumentLifecycle.EXPIRED:
         document.status = DocumentAccess.SUSPENDED
     _advance(session, document, target, actor_id, reason)
@@ -490,6 +510,14 @@ def describe(session: Session, document_id: str) -> dict[str, Any]:
             .limit(50)
         ).scalars()
     )
+    leases = list(
+        session.execute(
+            select(OfflineGrant)
+            .where(OfflineGrant.document_id == document_id)
+            .order_by(OfflineGrant.granted_at.desc())
+            .limit(50)
+        ).scalars()
+    )
     out = summary(session, document)
     out.update(
         {
@@ -530,6 +558,21 @@ def describe(session: Session, document_id: str) -> dict[str, Any]:
                     "break_glass": s.is_break_glass,
                 }
                 for s in history
+            ],
+            "offline_grants": [
+                {
+                    "offline_grant_id": g.offline_grant_id,
+                    "recipient_id": g.recipient_id,
+                    "device_id": g.device_id,
+                    "session_id": g.session_id,
+                    "status": g.status,
+                    "granted_at": g.granted_at.isoformat(timespec="seconds"),
+                    "expires_at": g.expires_at.isoformat(timespec="seconds") if g.expires_at else None,
+                    "closed_at": g.closed_at.isoformat(timespec="seconds") if g.closed_at else None,
+                    "closed_reason": g.closed_reason,
+                    "policy_version": g.policy_version,
+                }
+                for g in leases
             ],
             "crypto": encryption.crypto_note(),
         }

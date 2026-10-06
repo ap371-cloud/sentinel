@@ -46,6 +46,9 @@ class Document(Base):
     print_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
     export_allowed: Mapped[bool] = mapped_column(Boolean, default=True)
     offline_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: How long one offline grant lasts once issued. 0 = no time cap beyond
+    #: the document's own expiry; the right OFFLINE still gates every request.
+    offline_max_hours: Mapped[int] = mapped_column(Integer, default=0)
     watermark_required: Mapped[bool] = mapped_column(Boolean, default=True)
     second_approval_required: Mapped[bool] = mapped_column(Boolean, default=False)
     access_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -134,3 +137,24 @@ class RecipientGrant(Base):
     granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OfflineGrant(Base):
+    """One offline-access window: who, which device, until when, under which
+    policy version. Rows are never deleted — they expire, get superseded by a
+    later online session, or are revoked, and every one of those states stays
+    visible for audit and forensics."""
+
+    __tablename__ = "offline_grants"
+
+    offline_grant_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.document_id"), index=True)
+    recipient_id: Mapped[str] = mapped_column(String(32), index=True)
+    device_id: Mapped[str] = mapped_column(String(48), index=True)
+    session_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    policy_version: Mapped[str] = mapped_column(String(24))
+    status: Mapped[str] = mapped_column(String(16), default="ACTIVE", index=True)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

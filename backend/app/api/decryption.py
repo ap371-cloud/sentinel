@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..core.config import PATHS, DeviceTrust
-from ..core.exceptions import NotFound
+from ..core.exceptions import AuthorizationDenied, NotFound
 from ..core.rights import require_right
 from ..core.timeutil import utcnow
 from ..database import shared as shared_store
@@ -112,6 +112,11 @@ def session_document(
     be used to reach another recipient's artefact.
     """
     record = decryption_service.describe_session(session, session_id)
+    if record.get("status") == "REVOKED":
+        raise AuthorizationDenied(
+            "This decryption session was revoked.",
+            detail="SESSION_REVOKED",
+        )
     document = session.get(Document, record["document_id"])
     if document is None:
         raise NotFound(f"No document {record['document_id']} behind this session.")
@@ -202,6 +207,20 @@ def revoke_device(
 ) -> dict[str, Any]:
     return revocation.revoke_device(
         session, device_id=device_id, actor_id=officer.recipient_id, reason=payload.reason
+    )
+
+
+@router.post("/sessions/{session_id}/revoke")
+def revoke_session(
+    session_id: str,
+    payload: RevokeRequest,
+    session: Session = Depends(db),
+    officer: Recipient = Depends(permitted("recipient.revoke")),
+) -> dict[str, Any]:
+    """Withdraws a session's authority to deliver its artefact and any offline
+    window it opened, without touching the evidence it already produced."""
+    return revocation.revoke_session(
+        session, session_id=session_id, actor_id=officer.recipient_id, reason=payload.reason
     )
 
 

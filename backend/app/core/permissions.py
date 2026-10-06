@@ -228,6 +228,8 @@ class RequestContext:
     session_budget_exhausted: bool = False
     offline_requested: bool = False
     offline_allowed: bool = True
+    offline_grant_expired: bool = False
+    offline_grant_revoked: bool = False
     decrypt_right: str = "ALLOW"
     break_glass_approved: bool = False
     now: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -356,12 +358,32 @@ def evaluate_decryption(
         else "MAXIMUM_SESSIONS_REACHED",
         "The document's policy limit on decryption sessions has not been reached.",
     )
-    offline_ok = (not context.offline_requested) or context.offline_allowed
+    if not context.offline_requested:
+        offline_ok, offline_reason = True, "OFFLINE_OK"
+        offline_plain = "The request did not ask for offline access."
+    elif not context.offline_allowed:
+        offline_ok, offline_reason = False, "OFFLINE_NOT_PERMITTED"
+        offline_plain = "The document's policy allows this operation while the network is partitioned."
+    elif context.offline_grant_revoked:
+        offline_ok, offline_reason = False, "OFFLINE_GRANT_REVOKED"
+        offline_plain = (
+            "The offline access window for this device was revoked. One authenticated "
+            "online session re-establishes a window; the withdrawal itself stays on record."
+        )
+    elif context.offline_grant_expired:
+        offline_ok, offline_reason = False, "OFFLINE_GRANT_EXPIRED"
+        offline_plain = (
+            "The offline access window for this device has elapsed. One online "
+            "session renews it before offline use can continue."
+        )
+    else:
+        offline_ok, offline_reason = True, "OFFLINE_OK"
+        offline_plain = "The document's policy allows this operation while the network is partitioned."
     record(
         "offline_permitted",
         offline_ok,
-        "OFFLINE_OK" if offline_ok else "OFFLINE_NOT_PERMITTED",
-        "The document's policy allows this operation while the network is partitioned.",
+        offline_reason,
+        offline_plain,
     )
     policy_ok = (not context.lockdown_active) or context.break_glass_approved
     record(

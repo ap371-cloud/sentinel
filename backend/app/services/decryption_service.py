@@ -27,7 +27,7 @@ from ..ledger.block import Transaction as LedgerTransaction
 from ..models.documents import Document, DocumentVersion
 from ..models.identity import Device, KeyMetadata, Recipient
 from ..models.sessions import DecryptionEvent, DecryptionSession, RequestNonce, Watermark
-from ..security import anomaly_detection, incident_engine
+from ..security import anomaly_detection, incident_engine, offline_grants
 from ..security.lockdown import is_active as lockdown_active
 from . import approval_service, audit_service, document_service, watermark_service
 
@@ -234,6 +234,23 @@ def decrypt(
 
     _consume_nonce(session, nonce=nonce, session_id=session_id)
 
+    if offline:
+        offline_grants.issue(
+            session,
+            document=document,
+            recipient_id=actor.recipient_id,
+            device_id=device_id,
+            session_id=session_id,
+            actor_id=actor.recipient_id,
+        )
+    else:
+        offline_grants.supersede_expired(
+            session,
+            document=document,
+            recipient_id=actor.recipient_id,
+            device_id=device_id,
+        )
+
     plaintext = _unwrap_document(session, document, version, actor.recipient_id)
 
     tag, inputs = watermark_service.issue_tag(
@@ -371,6 +388,17 @@ def _authorize(
     signing_expired = has_expired(signing_key.expires_at if signing_key else None)
     usage = effective_rights(document)
 
+    lease_expired = lease_revoked = False
+    if offline and device is not None:
+        _, lease_reason, _ = offline_grants.evaluate(
+            session,
+            document=document,
+            recipient_id=actor.recipient_id,
+            device_id=device.device_id,
+        )
+        lease_expired = lease_reason == offline_grants.DENY_EXPIRED
+        lease_revoked = lease_reason == offline_grants.DENY_REVOKED
+
     context = RequestContext(
         actor_id=actor.recipient_id,
         role=actor.role,
@@ -400,6 +428,8 @@ def _authorize(
         ),
         offline_requested=offline,
         offline_allowed=usage["OFFLINE"] == "ALLOW",
+        offline_grant_expired=lease_expired,
+        offline_grant_revoked=lease_revoked,
         decrypt_right=usage["DECRYPT"],
         break_glass_approved=break_glass,
     )

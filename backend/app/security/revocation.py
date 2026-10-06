@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -7,17 +8,51 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..core.config import AccountStatus, DeviceTrust, DocumentAccess, KeyStatus
+from ..core.exceptions import NotFound
 from ..core.identifiers import next_id
 from ..crypto.key_management import VAULT
 from ..models.documents import Document, RecipientGrant
 from ..models.identity import Device, Recipient
+from ..models.security import Revocation
+from ..models.sessions import DecryptionSession
 from ..services import audit_service
-from . import incident_engine
+from . import incident_engine, offline_grants
 
 REVOCATION_EFFECT = (
     "New decryptions and new sessions fail immediately. Every record of what happened before "
     "this moment is left untouched."
 )
+
+
+def record_revocation(
+    session: Session,
+    *,
+    subject_type: str,
+    subject_id: str,
+    scope: str,
+    reason: str,
+    actor_id: str,
+    cascaded_to: list[str] | None = None,
+) -> str:
+    """Appends one entry to the withdrawal register.
+
+    Every revoke path writes here, so "who withdrew what, when and why" has a
+    single queryable history that outlives the rows it revokes.
+    """
+    revocation_id = next_id("REV", width=8)
+    row = Revocation(
+        revocation_id=revocation_id,
+        subject_type=subject_type,
+        subject_id=subject_id,
+        scope=scope,
+        reason=reason,
+        revoked_by=actor_id,
+        revoked_at=datetime.now(timezone.utc),
+        cascaded_to=json.dumps(cascaded_to or []),
+    )
+    session.add(row)
+    session.flush()
+    return revocation_id
 
 
 def revoke_recipient(
@@ -33,6 +68,9 @@ def revoke_recipient(
     for device in session.execute(select(Device).where(Device.recipient_id == recipient_id)).scalars():
         device.status = "REVOKED"
         device.revoked_at = moment
+    dead_leases = offline_grants.revoke(
+        session, recipient_id=recipient_id, actor_id=actor_id, reason=reason
+    )
 
     audit_service.record(
         session,
@@ -41,6 +79,15 @@ def revoke_recipient(
         target_type="RECIPIENT",
         target_id=recipient_id,
         detail={"reason": reason},
+    )
+    record_revocation(
+        session,
+        subject_type="USER",
+        subject_id=recipient_id,
+        scope="ALL",
+        reason=reason,
+        actor_id=actor_id,
+        cascaded_to=[f"offline_grant:{gid}" for gid in dead_leases],
     )
     incident_engine.raise_event(
         session,
@@ -93,6 +140,9 @@ def revoke_device(session: Session, *, device_id: str, actor_id: str, reason: st
         raise KeyError(device_id)
     device.status = "REVOKED"
     device.revoked_at = datetime.now(timezone.utc)
+    dead_leases = offline_grants.revoke(
+        session, device_id=device_id, actor_id=actor_id, reason=reason
+    )
     audit_service.record(
         session,
         actor_id=actor_id,
@@ -100,6 +150,15 @@ def revoke_device(session: Session, *, device_id: str, actor_id: str, reason: st
         target_type="DEVICE",
         target_id=device_id,
         detail={"reason": reason, "owner": device.recipient_id},
+    )
+    record_revocation(
+        session,
+        subject_type="DEVICE",
+        subject_id=device_id,
+        scope="DECRYPTION",
+        reason=reason,
+        actor_id=actor_id,
+        cascaded_to=[f"offline_grant:{gid}" for gid in dead_leases],
     )
     incident_engine.raise_event(
         session,
@@ -131,6 +190,14 @@ def revoke_key(
         target_type="KEY",
         target_id=f"{owner_id}:{purpose}",
         detail={"reason": reason},
+    )
+    record_revocation(
+        session,
+        subject_type="KEY",
+        subject_id=f"{owner_id}:{purpose}",
+        scope=purpose,
+        reason=reason,
+        actor_id=actor_id,
     )
     incident_engine.raise_event(
         session,
@@ -164,6 +231,13 @@ def revoke_document_access(
         raise KeyError(f"{recipient_id} has no grant on {document_id}")
     grant.revoked_at = datetime.now(timezone.utc)
     grant.note = reason
+    dead_leases = offline_grants.revoke(
+        session,
+        document_id=document_id,
+        recipient_id=recipient_id,
+        actor_id=actor_id,
+        reason=reason,
+    )
     audit_service.record(
         session,
         actor_id=actor_id,
@@ -172,11 +246,73 @@ def revoke_document_access(
         target_id=grant.grant_id,
         detail={"document_id": document_id, "recipient_id": recipient_id, "reason": reason},
     )
+    record_revocation(
+        session,
+        subject_type="DOCUMENT_GRANT",
+        subject_id=f"{document_id}:{recipient_id}",
+        scope="DOCUMENT",
+        reason=reason,
+        actor_id=actor_id,
+        cascaded_to=[f"offline_grant:{gid}" for gid in dead_leases],
+    )
     return {
         "document_id": document_id,
         "recipient_id": recipient_id,
         "status": "REVOKED",
+        "offline_grants_revoked": dead_leases,
         "plain_explanation": "This recipient can no longer open the document, even though their clearance is unchanged.",
+    }
+
+
+def revoke_session(
+    session: Session, *, session_id: str, actor_id: str, reason: str
+) -> dict[str, Any]:
+    """Withdraws a decryption session: its artefact download is refused from
+    now on and any offline lease issued under it dies with it. The signed
+    event chain for the session is deliberately left intact — revoking
+    authority never rewrites history."""
+    row = session.get(DecryptionSession, session_id)
+    if row is None:
+        raise NotFound(f"No session {session_id}.")
+    if row.status == "REVOKED":
+        return {
+            "session_id": session_id,
+            "status": "REVOKED",
+            "already_revoked": True,
+            "plain_explanation": "This session was already withdrawn.",
+        }
+    moment = datetime.now(timezone.utc)
+    row.status = "REVOKED"
+    dead_leases = offline_grants.revoke(
+        session, session_id=session_id, actor_id=actor_id, reason=reason
+    )
+    audit_service.record(
+        session,
+        actor_id=actor_id,
+        action="SESSION_REVOKED",
+        target_type="DECRYPTION_SESSION",
+        target_id=session_id,
+        detail={"document_id": row.document_id, "recipient_id": row.recipient_id, "reason": reason},
+    )
+    record_revocation(
+        session,
+        subject_type="SESSION",
+        subject_id=session_id,
+        scope=row.document_id,
+        reason=reason,
+        actor_id=actor_id,
+        cascaded_to=[f"offline_grant:{gid}" for gid in dead_leases],
+    )
+    return {
+        "session_id": session_id,
+        "status": "REVOKED",
+        "revoked_at": moment.isoformat(timespec="seconds"),
+        "offline_grants_revoked": dead_leases,
+        "history_preserved": True,
+        "plain_explanation": (
+            "This session can no longer deliver its artefact or support offline access. "
+            "The signed evidence of what it already did is preserved."
+        ),
     }
 
 
