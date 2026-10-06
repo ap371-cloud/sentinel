@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..core.config import PATHS, ForensicOutcome
 from ..core.exceptions import NotFound
 from ..core.identifiers import case_id as make_case_id
+from ..core.timeutil import as_utc
 from ..crypto.hashing import canonical_bytes, file_digest_bundle, sha256_hex
 from ..crypto.signatures import verify_recipient_signature
 from ..database import shared as shared_store
@@ -20,6 +21,7 @@ from ..ledger.chain import NETWORK
 from ..models.documents import Document, DocumentVersion
 from ..models.forensic import ANALYSIS_TOOL, EvidenceItem, InvestigationCase
 from ..models.identity import Recipient
+from ..models.security import Policy
 from ..models.sessions import DecryptionEvent, DecryptionSession
 from ..security import incident_engine
 from . import audit_service, watermark_service
@@ -221,6 +223,9 @@ def analyze(session: Session, *, evidence: EvidenceItem) -> dict[str, Any]:
         )
     )
 
+    policy_link = _policy_verification_link(session, event)
+    links.append(policy_link)
+
     ledger_link, proof = _verify_ledger(event.ledger_tx_id if event else None)
     links.append(ledger_link)
 
@@ -264,7 +269,13 @@ def analyze(session: Session, *, evidence: EvidenceItem) -> dict[str, Any]:
                 )
             )
 
-    outcome = _decide_outcome(signature_ok, ledger_link["status"], document_integrity, bool(proof and proof.get("verified")))
+    outcome = _decide_outcome(
+        signature_ok,
+        ledger_link["status"],
+        document_integrity,
+        bool(proof and proof.get("verified")),
+        policy_link["status"] == "PASS",
+    )
     return _finish(session, evidence, verdict, links, decryption_session, event, outcome)
 
 
@@ -294,16 +305,79 @@ def _verify_ledger(tx_id: str | None) -> tuple[dict[str, Any], dict[str, Any] | 
     )
 
 
-def _decide_outcome(signature_ok: bool, ledger_status: str, integrity: str, merkle_ok: bool) -> str:
+def _policy_verification_link(session: Session, event: DecryptionEvent | None) -> dict[str, Any]:
+    """Binds the signed event to the policy version it claims.
+
+    A decryption event names the policy version in force at the moment it was
+    signed. That version must correspond to an actually issued policy whose
+    record predates the event — otherwise the attribution rests on a claim
+    about a policy that never existed, or that was back-dated.
+    """
+    if event is None:
+        return _link("POLICY VERIFICATION", "FAIL", "No signed event to bind a policy version to.")
+    binding = policy_binding(session, json.loads(event.payload), as_utc(event.occurred_at))
+    status = binding["status"]
+    return _link("POLICY VERIFICATION", status, binding["detail"], evidence=binding["evidence"])
+
+
+def policy_binding(session: Session, payload: dict[str, Any], occurred_at: datetime) -> dict[str, Any]:
+    recorded = payload.get("policy_version")
+    if not recorded:
+        return {
+            "status": "UNKNOWN",
+            "detail": "The signed event carries no policy version, so no policy binding can be claimed.",
+            "evidence": {},
+        }
+    policy = session.execute(
+        select(Policy).where(Policy.policy_version == recorded).order_by(Policy.updated_at.desc())
+    ).scalars().first()
+    if policy is None:
+        return {
+            "status": "FAIL",
+            "detail": f"Policy version {recorded} was never issued, so the event is not bound to a real policy.",
+            "evidence": {"policy_version": recorded},
+        }
+    recorded_at = as_utc(policy.updated_at)
+    not_retroactive = recorded_at <= occurred_at
+    evidence = {
+        "policy_version": recorded,
+        "policy_hash": policy.policy_hash,
+        "still_active": policy.active,
+        "recorded_at": recorded_at.isoformat(timespec="seconds"),
+    }
+    if not_retroactive:
+        return {
+            "status": "PASS",
+            "detail": (
+                f"Policy {recorded} was already in force (recorded {evidence['recorded_at']}) when "
+                "this decryption occurred."
+            ),
+            "evidence": evidence,
+        }
+    return {
+        "status": "FAIL",
+        "detail": (
+            f"Policy {recorded} is recorded only after this decryption occurred; the binding would "
+            "be retroactive and is rejected."
+        ),
+        "evidence": evidence,
+    }
+
+
+def _decide_outcome(signature_ok: bool, ledger_status: str, integrity: str, merkle_ok: bool, policy_ok: bool) -> str:
     from ..core.config import ForensicOutcome
 
     if not signature_ok:
         return ForensicOutcome.SIGNATURE_INVALID
     if ledger_status == "FAIL" or not merkle_ok:
         return ForensicOutcome.LEDGER_PROOF_INVALID
+    if not policy_ok:
+        return ForensicOutcome.PARTIALLY_VERIFIED
     if integrity == "ALTERED":
         return ForensicOutcome.DOCUMENT_MODIFIED
-    if integrity in ("MATCHED", "UNKNOWN"):
+    if integrity == "UNKNOWN":
+        return ForensicOutcome.PARTIALLY_VERIFIED
+    if integrity == "MATCHED":
         return ForensicOutcome.VERIFIED_ASSOCIATION
     return ForensicOutcome.PARTIALLY_VERIFIED
 
@@ -470,6 +544,20 @@ def content_similarity(suspect_pdf: Path, original_pdf: Path) -> dict[str, Any]:
     }
 
 
+def _report_policy_binding(session: Session, event: DecryptionEvent | None) -> dict[str, Any]:
+    """The policy section of a report mirrors the verified chain link plus the
+    recorded digest, so the two can never drift apart."""
+    if event is None:
+        return {"binding_verified": False, "plain_explanation": "No signed event to bind."}
+    binding = policy_binding(session, json.loads(event.payload), as_utc(event.occurred_at))
+    return {
+        "binding_verified": binding["status"] == "PASS",
+        "status": binding["status"],
+        "evidence": binding["evidence"],
+        "plain_explanation": binding["detail"],
+    }
+
+
 def build_report(session: Session, *, evidence: EvidenceItem, investigator: Recipient) -> dict[str, Any]:
     """Assembles the forensic report and hashes it."""
     from ..core.config import ForensicOutcome
@@ -544,6 +632,7 @@ def build_report(session: Session, *, evidence: EvidenceItem, investigator: Reci
             "recorded_content_sha256": version.content_sha256 if version else None,
             "policy_version": document.policy_version if document else None,
         },
+        "policy": _report_policy_binding(session, event),
         "signed_event": {
             "event_id": event.event_id if event else None,
             "event_hash": event.event_hash if event else None,

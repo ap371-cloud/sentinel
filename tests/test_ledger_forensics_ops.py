@@ -318,6 +318,7 @@ class TestForensicChain:
             "DECRYPTION SESSION",
             "RECIPIENT ASSOCIATION",
             "EVENT SIGNATURE",
+            "POLICY VERIFICATION",
             "LEDGER TRANSACTION",
             "DOCUMENT VERSION MATCH",
         ):
