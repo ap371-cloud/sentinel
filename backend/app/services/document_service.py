@@ -21,7 +21,7 @@ from ..models.documents import Document, DocumentVersion, OfflineGrant, Recipien
 from ..models.identity import Recipient
 from ..models.sessions import DecryptionSession
 from ..security import locations
-from . import audit_service
+from . import approval_service, audit_service
 
 
 def _utcnow() -> datetime:
@@ -588,6 +588,7 @@ def describe(session: Session, document_id: str) -> dict[str, Any]:
     out.update(
         {
             "policy": document.policy(),
+            "policy_hash": approval_service.policy_hash_for(session, document.policy_version),
             "policy_note": (
                 "Prototype application-level labels only. These do not reproduce any official "
                 "classification scheme and carry no certification."

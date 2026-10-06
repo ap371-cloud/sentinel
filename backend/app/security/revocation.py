@@ -15,7 +15,7 @@ from ..models.documents import Document, RecipientGrant
 from ..models.identity import Device, Recipient
 from ..models.security import Revocation
 from ..models.sessions import DecryptionSession
-from ..services import audit_service
+from ..services import approval_service, audit_service
 from . import incident_engine, offline_grants
 
 REVOCATION_EFFECT = (
@@ -49,6 +49,7 @@ def record_revocation(
         revoked_by=actor_id,
         revoked_at=datetime.now(timezone.utc),
         cascaded_to=json.dumps(cascaded_to or []),
+        policy_version=approval_service.active_policy(session).policy_version,
     )
     session.add(row)
     session.flush()

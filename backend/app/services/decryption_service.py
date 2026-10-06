@@ -606,6 +606,7 @@ def describe_session(session: Session, session_id: str) -> dict[str, Any]:
         "break_glass": row.is_break_glass,
         "break_glass_reason": row.break_glass_reason,
         "policy_version": row.policy_version,
+        "policy_hash": approval_service.policy_hash_for(session, row.policy_version),
         "watermark_version": row.watermark_version,
         "nonce_consumed": True,
         "single_use_enforced": SETTINGS.session_single_use,

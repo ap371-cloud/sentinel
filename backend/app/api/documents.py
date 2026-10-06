@@ -281,10 +281,19 @@ def current_policy(session: Session = Depends(db), _: Recipient = Depends(readab
         "policy": {
             "policy_id": policy.policy_id,
             "policy_version": policy.policy_version,
+            "policy_hash": policy.policy_hash or approval_service.policy_hash(approval_service.policy_config(policy)),
             "name": policy.name,
             "device_access_policy": policy.device_access_policy,
             "replay_window_seconds": policy.replay_window_seconds,
             "break_glass_enabled": policy.break_glass_enabled,
             "high_risk_actions": __import__("json").loads(policy.high_risk_actions or "[]"),
-        }
+            "updated_by": policy.updated_by,
+            "updated_at": policy.updated_at.isoformat(timespec="seconds") if policy.updated_at else None,
+            "change_reason": policy.change_reason,
+        },
+        "versions": approval_service.policy_history(session),
+        "limitation": (
+            "historical decisions keep the policy version and digest that governed them; "
+            "only the active version applies to new decisions"
+        ),
     }

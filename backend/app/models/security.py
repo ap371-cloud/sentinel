@@ -26,6 +26,9 @@ class Policy(Base):
     updated_by: Mapped[str] = mapped_column(String(32))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     change_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    #: sha256 over the enforced config; stored at creation so a later edit to
+    #: the row itself becomes visible against the recorded digest.
+    policy_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
 
 class ApprovalRequest(Base):
@@ -49,6 +52,9 @@ class ApprovalRequest(Base):
     consumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     approvals: Mapped[str] = mapped_column(Text, default="[]")
     rejections: Mapped[str] = mapped_column(Text, default="[]")
+    #: The policy version in force when the request was raised, so a decision
+    #: can never be read against a later policy than the one it faced.
+    policy_version: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
 
     def approver_ids(self) -> list[str]:
         return json.loads(self.approvals or "[]")
@@ -197,6 +203,7 @@ class Revocation(Base):
     revoked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     cascaded_to: Mapped[str] = mapped_column(Text, default="[]")
     history_preserved: Mapped[bool] = mapped_column(Boolean, default=True)
+    policy_version: Mapped[Optional[str]] = mapped_column(String(24), nullable=True)
 
 
 class BackupRecord(Base):

@@ -322,6 +322,33 @@ def approvals(
     }
 
 
+class PolicyChangeBody(BaseModel):
+    changes: dict[str, Any]
+    reason: str = Field(min_length=10, max_length=600)
+    approval_id: str | None = None
+    bump_major: bool = False
+
+
+@router.post("/policies")
+def change_policy(
+    payload: PolicyChangeBody,
+    session: Session = Depends(db),
+    admin: Recipient = Depends(permitted("policy.modify")),
+) -> dict[str, Any]:
+    """Promotes a new policy version. Archived versions stay queryable with the
+    digest that governed them, so a recorded decision is never re-read under a
+    later policy."""
+    return approval_service.update_policy(
+        session,
+        actor_id=admin.recipient_id,
+        actor_role=admin.role,
+        changes=payload.changes,
+        reason=payload.reason,
+        approval_id=payload.approval_id,
+        bump_major=payload.bump_major,
+    )
+
+
 class BreakGlassRequest(BaseModel):
     document_id: str
     reason: str = Field(min_length=15, max_length=1000)

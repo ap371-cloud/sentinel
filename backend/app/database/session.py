@@ -110,6 +110,9 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("documents", "offline_max_hours", "INTEGER NOT NULL DEFAULT 0"),
     ("documents", "visible_watermark", "BOOLEAN NOT NULL DEFAULT TRUE"),
     ("documents", "allowed_locations", "TEXT NOT NULL DEFAULT '[]'"),
+    ("policies", "policy_hash", "VARCHAR(64)"),
+    ("approval_requests", "policy_version", "VARCHAR(24)"),
+    ("revocations", "policy_version", "VARCHAR(24)"),
 )
 
 
