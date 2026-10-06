@@ -52,6 +52,52 @@ def status(session: Session = Depends(db), _: Recipient = Depends(readable("ledg
     }
 
 
+@router.get("/resilience")
+def resilience(
+    session: Session = Depends(db), _: Recipient = Depends(readable("ledger.read"))
+) -> dict[str, Any]:
+    """One operational view: NODE lines with ONLINE/OFFLINE and HEIGHT, joined
+    with full integrity recomputation. On mismatch the view names the failure
+    as LEDGER CONSISTENCY FAILURE and shows the conflicting block and its
+    hashes; no copy is ever repaired in place."""
+    from ..ledger.chain import NETWORK
+
+    view = NETWORK.resilience()
+    registry = {row.node_id: row for row in session.query(LedgerNode).all()}
+    for line in view["nodes"]:
+        row = registry.get(line["node_id"])
+        if row is None:
+            continue
+        row.last_block_height = line["block_height"]
+        row.last_block_hash = line["latest_block_hash"]
+        row.last_merkle_root = line["merkle_root"]
+        row.state_root = line["state_root"]
+        row.status = line["status"]
+        row.pending_sync_count = line["pending_sync_count"]
+        row.integrity_status = line["integrity_status"]
+        row.divergent_from_peers = line["node_id"] in {
+            entry["node_id"] for entry in view["conflicting_blocks"]
+        }
+    return {
+        **view,
+        "registered_nodes": [
+            {
+                "node_id": row.node_id,
+                "integrity_status": row.integrity_status,
+                "integrity_detail": row.integrity_detail,
+                "divergent_from_peers": row.divergent_from_peers,
+                "last_sync_result": row.last_sync_result,
+            }
+            for row in registry.values()
+        ],
+        "design_note": (
+            "A local permissioned ledger with no public dependency. Every node keeps its own "
+            "database file, which is what turns a single-node rewrite (even with the immutability "
+            "guard removed) into something the quorum comparison surfaces."
+        ),
+    }
+
+
 @router.get("/verify")
 def verify(_: Recipient = Depends(readable("ledger.verify"))) -> dict[str, Any]:
     """Recomputes every block hash, chain link, Merkle root, node signature and

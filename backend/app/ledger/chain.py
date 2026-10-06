@@ -335,6 +335,184 @@ class LedgerNetwork:
             ),
         }
 
+    def resilience(self) -> dict[str, Any]:
+        """One operational view that joins reachability with integrity.
+
+        Every node gets an ONLINE/OFFLINE + HEIGHT line, and the same
+        recomputation the full verification does. A node whose head disagrees
+        with the quorum is surfaced with its conflicting block and affected
+        transactions; it is never overwritten, because its stored copy is the
+        evidence.
+        """
+        self.ensure_ready()
+        reachability = self.status()
+        integrity = self.verify()
+        verdicts = {v["node_id"]: v for v in integrity["nodes"]}
+        live = {n["node_id"]: n for n in reachability["nodes"]}
+
+        nodes = []
+        online_heads: list[dict[str, Any]] = []
+        for node_id in self.node_ids:
+            line = live[node_id]
+            verdict = verdicts[node_id]
+            entry = {
+                "node_id": node_id,
+                "status": line["status"],
+                "block_height": line["block_height"],
+                "latest_block_hash": line["latest_block_hash"],
+                "previous_block_hash": line["previous_block_hash"],
+                "merkle_root": line["latest_merkle_root"],
+                "state_root": line["state_root"],
+                "integrity_status": verdict["status"],
+                "blocks_checked": verdict["blocks_checked"],
+                "transactions_checked": verdict["transactions_checked"],
+                "first_failing_height": verdict["first_failing_height"],
+                "pending_sync_count": line["pending_sync_count"],
+            }
+            nodes.append(entry)
+            if line["status"] == "ONLINE":
+                online_heads.append(entry)
+
+        online_heights = sorted({line["block_height"] for line in online_heads})
+        integrity_failure = any(line["integrity_status"] == "TAMPER DETECTED" for line in nodes)
+        agreement_failure = integrity["agreement"]["status"] != "CONSISTENT"
+        # Un-explained height spread between online peers is a consistency
+        # failure, not harmless replication lag: genuine lag only shows up on
+        # nodes that are out of reach.
+        height_mismatch = len(online_heads) > 1 and len(online_heights) > 1
+
+        reasons = []
+        if integrity_failure:
+            reasons.append("INTEGRITY_TAMPER_DETECTED")
+        if agreement_failure:
+            reasons.append("CROSS_NODE_AGREEMENT_BROKEN")
+        if height_mismatch:
+            reasons.append("ONLINE_NODE_HEIGHTS_DIVERGE")
+        consistent = not reasons
+
+        majority_root = integrity["agreement"]["state_root"]
+        majority_members = set(integrity["agreement"].get("quorum_members", []))
+        diverged = set(integrity["agreement"].get("divergent", []))
+
+        # Convenient labels for the conflicting-head report.
+        majority_height = integrity["agreement"]["agreed_height"]
+
+        conflicting: list[dict[str, Any]] = []
+        affected_transactions: list[dict[str, Any]] = []
+        for line in nodes:
+            node = self.nodes[line["node_id"]]
+            head = node.block_at(line["block_height"])
+            disagrees = (
+                line["integrity_status"] == "TAMPER DETECTED"
+                or (line["status"] == "ONLINE" and line["state_root"] != majority_root)
+            )
+            if disagrees:
+                conflicting.append(
+                    {
+                        "node_id": line["node_id"],
+                        "height": line["block_height"],
+                        "block_id": head["block_id"] if head else "",
+                        "block_hash": head["block_hash"] if head else "",
+                        "previous_block_hash": head["previous_block_hash"] if head else "",
+                        "merkle_root": head["merkle_root"] if head else "",
+                        "state_root": head["state_root"] if head else "",
+                        "transaction_count": head["transaction_count"] if head else 0,
+                        "integrity_verdict": line["integrity_status"],
+                    }
+                )
+                affected_transactions.append(
+                    {
+                        "node_id": line["node_id"],
+                        "transaction_count": head["transaction_count"] if head else 0,
+                        "pending_sync_count": line["pending_sync_count"],
+                    }
+                )
+            elif line["status"] == "OFFLINE" and line["pending_sync_count"]:
+                affected_transactions.append(
+                    {
+                        "node_id": line["node_id"],
+                        "transaction_count": head["transaction_count"] if head else 0,
+                        "pending_sync_count": line["pending_sync_count"],
+                    }
+                )
+
+        expected_head = {}
+        for line in nodes:
+            # Only a node that itself recomputed clean counts as the expected
+            # reference; a tampered node still stores the original state root,
+            # so matching on root alone would echo the forged head back.
+            if (
+                line["status"] == "ONLINE"
+                and line["integrity_status"] == "VERIFIED"
+                and majority_root
+                and line["state_root"] == majority_root
+            ):
+                head = self.nodes[line["node_id"]].block_at(majority_height)
+                if head:
+                    expected_head = {
+                        "node_id": line["node_id"],
+                        "block_id": head["block_id"],
+                        "block_hash": head["block_hash"],
+                        "merkle_root": head["merkle_root"],
+                        "state_root": head["state_root"],
+                    }
+                break
+
+        replication_lag = [
+            {
+                "node_id": line["node_id"],
+                "status": "OFFLINE",
+                "block_height": line["block_height"],
+                "stored_head_hash": line["latest_block_hash"],
+                "pending_sync_count": line["pending_sync_count"],
+            }
+            for line in nodes
+            if line["status"] == "OFFLINE"
+        ]
+
+        affected_nodes = sorted(
+            {entry["node_id"] for entry in conflicting}
+            | {entry["node_id"] for entry in replication_lag}
+        )
+
+        return {
+            "ledger_consistency": (
+                "LEDGER CONSISTENCY FAILURE" if not consistent else "CONSISTENT"
+            ),
+            "consistency_reasons": reasons,
+            "nodes": nodes,
+            "online_nodes": sorted(line["node_id"] for line in online_heads),
+            "offline_nodes": [line["node_id"] for line in nodes if line["status"] == "OFFLINE"],
+            "replication_lag": replication_lag,
+            "conflicting_blocks": conflicting,
+            "expected_head": expected_head if diverged else {},
+            "affected_nodes": affected_nodes,
+            "affected_transactions": affected_transactions,
+            "verification_state": {
+                "integrity_headline": integrity["headline"],
+                "agreement_status": integrity["agreement"]["status"],
+                "agreed_height": majority_height,
+                "quorum_members": majority_members or None,
+                "divergent_nodes": diverged or None,
+                "verified_at": integrity["verified_at"],
+            },
+            "quorum": {
+                "required": self.quorum_size,
+                "reachable": reachability["reachable_nodes"],
+                "reachable_ok": reachability["quorum_reachable"],
+            },
+            "never_overwritten_note": (
+                "No conflicting block is repaired silently: each node keeps its own stored copy so "
+                "the divergence and its hashes remain inspectable evidence."
+            ),
+            "plain_explanation": (
+                "All online nodes agree on identical history at the same state root."
+                if consistent
+                else "At least one node disagrees with the quorum. The conflicting block, its hashes "
+                "and the affected nodes are reported; nothing has been overwritten."
+            ),
+        }
+
     def transactions(self) -> list[dict[str, Any]]:
         self.ensure_ready()
         for node in self.online_nodes():
