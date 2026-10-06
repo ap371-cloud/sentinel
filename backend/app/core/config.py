@@ -266,6 +266,15 @@ class Settings:
     watermark_version: str = "WM-1.0"
     policy_version: str = "POL-1.0"
 
+    #: Deterrent overlay stamped visibly on each decrypted copy when the
+    #: document has it enabled. This layer persuades a human; attribution is
+    #: still the invisible forensic watermark's job.
+    visible_watermark_template: str = (
+        "{classification} // {recipient_id} // {session_id} // {timestamp} "
+        "// {org} // AUTHORIZED USER ONLY"
+    )
+    visible_watermark_opacity: float = float(os.getenv("SENTINEL_VISIBLE_WM_OPACITY", "0.16"))
+
     replay_window_seconds: int = 45
     session_single_use: bool = True
 

@@ -50,6 +50,9 @@ class Document(Base):
     #: the document's own expiry; the right OFFLINE still gates every request.
     offline_max_hours: Mapped[int] = mapped_column(Integer, default=0)
     watermark_required: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: Deterrent overlay (recipient/session/classification text) on each copy;
+    #: separate from watermark_required, which governs the invisible layer.
+    visible_watermark: Mapped[bool] = mapped_column(Boolean, default=True)
     second_approval_required: Mapped[bool] = mapped_column(Boolean, default=False)
     access_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     maximum_sessions: Mapped[int] = mapped_column(Integer, default=0)
@@ -80,6 +83,7 @@ class Document(Base):
             "export_allowed": self.export_allowed,
             "offline_allowed": self.offline_allowed,
             "watermark_required": self.watermark_required,
+            "visible_watermark": self.visible_watermark,
             "second_approval_required": self.second_approval_required,
             "access_expiry": self.access_expiry.isoformat(timespec="seconds") if self.access_expiry else None,
             "maximum_sessions": self.maximum_sessions,

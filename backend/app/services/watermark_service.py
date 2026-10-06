@@ -18,6 +18,7 @@ from ..watermark.embedder import embed
 from ..watermark.extractor import extract
 from ..watermark.generator import PAYLOAD_BITS, derive_tag, derivation_inputs
 from ..watermark.validation import RegistryCandidate, Verdict, judge
+from ..watermark import visible as visible_wm
 
 
 def issue_tag(
@@ -70,6 +71,9 @@ def embed_for_session(
         version_id=version.version_id,
         tag_hex=tag,
     )
+    visible = visible_wm.stamp(
+        output_pdf, document=document, recipient_id=recipient_id, session_id=session_id
+    )
     shared_store.artefact_put_file(output_pdf)
     return {
         "output_path": str(output_pdf),
@@ -79,6 +83,7 @@ def embed_for_session(
         "carriers_per_bit": result.carriers_per_bit,
         "payload_bits": result.payload_bits,
         "strength": SETTINGS.watermark_strength,
+        "visible": visible,
     }
 
 

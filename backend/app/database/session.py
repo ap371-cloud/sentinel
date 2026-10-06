@@ -108,6 +108,7 @@ def create_ops_schema() -> None:
 ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("documents", "rights", "TEXT NOT NULL DEFAULT '{}'"),
     ("documents", "offline_max_hours", "INTEGER NOT NULL DEFAULT 0"),
+    ("documents", "visible_watermark", "BOOLEAN NOT NULL DEFAULT TRUE"),
 )
 
 

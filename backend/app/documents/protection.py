@@ -7,6 +7,7 @@ from typing import Any
 
 import pymupdf as fitz
 
+from ..core.config import SETTINGS
 from ..database import shared as shared_store
 
 RECEIPT_FILE = "sentinel-policy-receipt.json"
@@ -61,6 +62,10 @@ def build_receipt(
         "offline": {
             "allowed": rights_matrix.get("OFFLINE") == "ALLOW",
             "max_hours": document.offline_max_hours,
+        },
+        "visible_watermark": {
+            "enabled": document.visible_watermark,
+            "template": SETTINGS.visible_watermark_template,
         },
         "notice": LIMITATION,
     }

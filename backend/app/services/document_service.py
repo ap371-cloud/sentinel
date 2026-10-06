@@ -152,7 +152,7 @@ def create_document(
 def _apply_policy(document: Document, policy: dict[str, Any]) -> None:
     fields = (
         "download_allowed", "print_allowed", "export_allowed", "offline_allowed",
-        "watermark_required", "second_approval_required", "maximum_sessions",
+        "watermark_required", "visible_watermark", "second_approval_required", "maximum_sessions",
     )
     for name in fields:
         if name in policy:
