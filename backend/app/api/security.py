@@ -38,6 +38,24 @@ def security_events(
     }
 
 
+@router.get("/anomalies")
+def anomalies(
+    session: Session = Depends(db),
+    _: Recipient = Depends(readable("incident.manage")),
+) -> dict[str, Any]:
+    """Monitoring is rule-based and transparent: every threshold is published
+    with the rule, so no decision hides behind an unexplained model."""
+    return {
+        "rules": anomaly_detection.rule_catalogue(),
+        "recent_observations": anomaly_detection.recent_observations(session),
+        "open_alerts": incident_engine.open_count(session),
+        "plain_explanation": (
+            "Every observation names the numbers it used. Rules only escalate to security events, "
+            "they never make authorisation decisions."
+        ),
+    }
+
+
 class AcknowledgeRequest(BaseModel):
     note: str = Field(min_length=3, max_length=400)
 

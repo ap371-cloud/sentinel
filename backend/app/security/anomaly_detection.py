@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..core.config import Severity
 from ..core.identifiers import next_id
 from ..models.identity import Device, Recipient
-from ..models.security import AnomalyObservation
+from ..models.security import AnomalyObservation, AuditRecord
 from ..models.sessions import DecryptionEvent, DecryptionSession
 
 #: Explainable thresholds. Every rule names the numbers it used so an operator
@@ -19,6 +19,8 @@ from ..models.sessions import DecryptionEvent, DecryptionSession
 FAILED_LOGIN_THRESHOLD = 3
 DECRYPTIONS_PER_MINUTE_THRESHOLD = 5
 DEVICE_CHANGE_WINDOW_MINUTES = 60
+REPEATED_DENIALS_THRESHOLD = 6
+DENIAL_WINDOW_MINUTES = 15
 
 
 @dataclass
@@ -64,8 +66,11 @@ def authentication_anomaly(session: Session, recipient_id: str) -> AnomalyVerdic
     recent_failures = int(
         session.execute(
             select(func.count())
-            .select_from(DecryptionEvent)
-            .where(DecryptionEvent.event_type == "LOGIN_FAILED", DecryptionEvent.recipient_id == recipient_id)
+            .select_from(AuditRecord)
+            .where(
+                AuditRecord.action == "LOGIN_FAILED",
+                AuditRecord.actor_id == recipient_id,
+            )
         ).scalar_one()
     )
     triggered = recent_failures >= FAILED_LOGIN_THRESHOLD
@@ -83,6 +88,37 @@ def authentication_anomaly(session: Session, recipient_id: str) -> AnomalyVerdic
         severity=Severity.MEDIUM,
         explanation=explanation,
         window_seconds=900,
+    )
+
+
+def repeated_denials(session: Session, recipient_id: str, *, window_minutes: int = DENIAL_WINDOW_MINUTES) -> AnomalyVerdict:
+    window_seconds = window_minutes * 60
+    since = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
+    count = int(
+        session.execute(
+            select(func.count())
+            .select_from(AuditRecord)
+            .where(
+                AuditRecord.action == "DECRYPT_DENIED",
+                AuditRecord.actor_id == recipient_id,
+                AuditRecord.occurred_at >= since,
+            )
+        ).scalar_one()
+    )
+    triggered = count >= REPEATED_DENIALS_THRESHOLD
+    return observe(
+        session,
+        rule="REPEATED_DENIALS",
+        subject_id=recipient_id,
+        observed_value=count,
+        threshold=REPEATED_DENIALS_THRESHOLD,
+        triggered=triggered,
+        severity=Severity.MEDIUM,
+        explanation=(
+            f"{recipient_id} was refused a decryption {count} times in the last {window_minutes} "
+            f"minute(s); the alert threshold is {REPEATED_DENIALS_THRESHOLD}."
+        ),
+        window_seconds=window_seconds,
     )
 
 
@@ -170,6 +206,12 @@ def rule_catalogue() -> list[dict[str, Any]]:
             "severity": Severity.HIGH,
             "threshold": "any attempt by a revoked identity",
             "explanation": "A cancelled credential is still in use.",
+        },
+        {
+            "rule": "REPEATED_DENIALS",
+            "severity": Severity.MEDIUM,
+            "threshold": f"{REPEATED_DENIALS_THRESHOLD}+ refused decryptions in {DENIAL_WINDOW_MINUTES} minutes",
+            "explanation": "A user may be probing what they can reach, or a process is retrying access it was never granted.",
         },
         {
             "rule": "EMERGENCY_ACCESS_USED",

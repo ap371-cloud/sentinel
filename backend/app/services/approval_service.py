@@ -443,6 +443,22 @@ def update_policy(
             "approval_id": approval_id,
         },
     )
+    incident_engine.raise_event(
+        session,
+        "POLICY_MODIFICATION",
+        what_happened=(
+            f"{actor_id} promoted the command policy from {current.policy_version} to "
+            f"{new_version} (reason: {reason})."
+        ),
+        what_was_affected="POLICY",
+        subject_id=actor_id,
+        severity="MEDIUM",
+        detail={
+            "previous_version": current.policy_version,
+            "policy_version": new_version,
+            "policy_hash": row.policy_hash,
+        },
+    )
     result = describe_policy(row)
     result["previous_version"] = current.policy_version
     result["approval_id"] = approval_id

@@ -452,8 +452,47 @@ def _authorize(
         break_glass_approved=break_glass,
     )
     decision = evaluate_decryption(context, device_policy=policy.device_access_policy)
+    if not decision.allowed:
+        _observe_denial(session, decision, actor, document)
     raise_for_decision(decision, recipient_status=actor.status)
     return decision
+
+
+def _observe_denial(
+    session: Session, decision: Any, actor: Recipient, document: Document
+) -> None:
+    """Denials are audit events too: a refusal pattern is exactly the signal an
+    operator should be able to find, so each one is logged and escalated once."""
+    audit_service.record(
+        session,
+        actor_id=actor.recipient_id,
+        actor_role=actor.role,
+        action="DECRYPT_DENIED",
+        target_type="DOCUMENT",
+        target_id=document.document_id,
+        outcome="DENIED",
+        detail={"reason_code": decision.reason_code},
+    )
+    verdict = anomaly_detection.repeated_denials(session, actor.recipient_id)
+    if verdict.triggered and not incident_engine.has_open_event(session, "REPEATED_DENIALS", actor.recipient_id):
+        incident_engine.raise_event(
+            session,
+            "REPEATED_DENIALS",
+            what_happened=(
+                f"{actor.recipient_id} was refused decryption {verdict.observed_value} times in "
+                f"the last {anomaly_detection.DENIAL_WINDOW_MINUTES} minutes; latest reason "
+                f"{decision.reason_code}."
+            ),
+            what_was_affected=actor.recipient_id,
+            subject_id=actor.recipient_id,
+            severity="MEDIUM",
+            detail={
+                "reason_code": decision.reason_code,
+                "observed_value": verdict.observed_value,
+                "threshold": verdict.threshold,
+                "window_minutes": anomaly_detection.DENIAL_WINDOW_MINUTES,
+            },
+        )
 
 
 def _unwrap_document(

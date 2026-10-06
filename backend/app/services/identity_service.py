@@ -195,6 +195,17 @@ def authenticate(
         )
 
     if recipient.status != AccountStatus.ACTIVE:
+        if recipient.status == AccountStatus.REVOKED and not incident_engine.has_open_event(
+            session, "REVOKED_RECIPIENT_ACCESS", recipient_id
+        ):
+            incident_engine.raise_event(
+                session,
+                "REVOKED_RECIPIENT_ACCESS",
+                what_happened=f"Revoked identity {recipient_id} attempted to sign in.",
+                what_was_affected=recipient_id,
+                subject_id=recipient_id,
+                severity="HIGH",
+            )
         audit_service.record(
             session,
             actor_id=recipient_id,

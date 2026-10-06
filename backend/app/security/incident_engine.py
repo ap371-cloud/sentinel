@@ -131,6 +131,13 @@ TEMPLATES: dict[str, dict[str, str]] = {
         "why_it_matters": "Policy changes can weaken protection if they are not deliberate.",
         "recommended_action": "Review the recorded justification and the two-person approval for the change.",
     },
+    "REPEATED_DENIALS": {
+        "severity": Severity.MEDIUM,
+        "title": "Repeated authorisation denials for one identity",
+        "plain_explanation": "One identity was refused a sensitive operation several times in a short period.",
+        "why_it_matters": "A user may be probing what they can reach, or an automated process may be retrying access it was never granted.",
+        "recommended_action": "Review the recorded denial reasons and confirm whether the identity should hold broader access.",
+    },
 }
 
 
@@ -210,6 +217,23 @@ def describe(row: SecurityEvent) -> dict[str, Any]:
         "detected_at": row.detected_at.isoformat(timespec="seconds"),
         "acknowledged_by": row.acknowledged_by,
     }
+
+
+def has_open_event(session: Session, category: str, subject_id: str) -> bool:
+    """True when an open alert for this subject already exists, so repeated
+    conditions escalate once instead of spamming the command feed."""
+    return (
+        int(
+            session.execute(
+                select(func.count()).select_from(SecurityEvent).where(
+                    SecurityEvent.category == category,
+                    SecurityEvent.status == "OPEN",
+                    SecurityEvent.subject_id == subject_id,
+                )
+            ).scalar_one()
+        )
+        > 0
+    )
 
 
 def acknowledge(session: Session, event_id: str, actor_id: str) -> bool:
