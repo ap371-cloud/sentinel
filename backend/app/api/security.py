@@ -14,7 +14,7 @@ from ..core.timeutil import utcnow
 from ..models.identity import Recipient
 from ..models.security import Incident, SecurityEvent
 from ..security import anomaly_detection, attack_lab, incident_engine, lockdown
-from ..services import ai_service, approval_service, audit_service, command_service
+from ..services import ai_service, approval_service, audit_service, command_service, risk_service
 from .deps import current_recipient, db, permitted, readable
 
 router = APIRouter(tags=["security", "incidents", "commander", "approvals", "ai", "audit"])
@@ -53,6 +53,50 @@ def anomalies(
             "Every observation names the numbers it used. Rules only escalate to security events, "
             "they never make authorisation decisions."
         ),
+    }
+
+
+@router.get("/risk")
+def risk_leaderboard(
+    session: Session = Depends(db),
+    _: Recipient = Depends(readable("incident.manage")),
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Ranked identity risk, summary only; drill into a single identity for
+    the full contributing-factor breakdown."""
+    recipients = list(
+        session.execute(select(Recipient).order_by(Recipient.recipient_id)).scalars()
+    )
+    rows = []
+    for recipient in recipients:
+        assessment = risk_service.assess(session, recipient.recipient_id)
+        rows.append(
+            {
+                "recipient_id": assessment["recipient_id"],
+                "risk_score": assessment["risk_score"],
+                "risk_level": assessment["risk_level"],
+                "factor_count": len(assessment["contributing_factors"]),
+            }
+        )
+    rows.sort(key=lambda r: (r["risk_score"]), reverse=True)
+    return {"recipients": rows[: min(limit, 500)], "maximum": risk_service.MAX_SCORE}
+
+
+@router.get("/risk/{recipient_id}")
+def risk_assessment(
+    recipient_id: str,
+    session: Session = Depends(db),
+    _: Recipient = Depends(readable("incident.manage")),
+) -> dict[str, Any]:
+    assessment = risk_service.assess(session, recipient_id)
+    return {
+        "recipient_id": assessment["recipient_id"],
+        "risk_score": assessment["risk_score"],
+        "maximum": assessment["maximum"],
+        "risk_level": assessment["risk_level"],
+        "assessment_at": assessment["assessment_at"],
+        "contributing_factors": assessment["contributing_factors"],
+        "plain_explanation": assessment["plain_explanation"],
     }
 
 

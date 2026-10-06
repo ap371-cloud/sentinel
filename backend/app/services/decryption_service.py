@@ -292,6 +292,7 @@ def decrypt(
         device_id=device_id,
         tag=tag,
         break_glass=break_glass,
+        export_as=export_as,
     )
 
     decryption_session.status = "COMPLETED"
@@ -545,6 +546,7 @@ def _record_signed_event(
     device_id: str,
     tag: str,
     break_glass: bool,
+    export_as: str | None = None,
 ) -> tuple[DecryptionEvent, dict[str, Any]]:
     from ..ledger.chain import NETWORK
 
@@ -565,6 +567,7 @@ def _record_signed_event(
         watermark_version=SETTINGS.watermark_version,
         occurred_at=_utcnow().isoformat(timespec="seconds"),
         break_glass=break_glass,
+        exported=export_as is not None,
     )
     signature, algorithm, key_id = sign_as_recipient(actor.recipient_id, payload)
     event_hash = sha256_hex(canonical_bytes(payload))

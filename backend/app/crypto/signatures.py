@@ -34,12 +34,14 @@ def event_payload(
     watermark_version: str,
     occurred_at: str,
     break_glass: bool = False,
+    exported: bool = False,
 ) -> dict[str, Any]:
     """Canonical signed body.
 
     The watermark tag is inside the signed payload on purpose. Without it, a
     recipient could argue that the fingerprint was added after they signed, which
-    would undermine the whole attribution claim.
+    would undermine the whole attribution claim. The ``exported`` flag is also
+    signed so a renamed export copy is attributable, not just a decryption.
     """
     return {
         "event_id": event_id,
@@ -56,6 +58,7 @@ def event_payload(
         "watermark_version": watermark_version,
         "occurred_at": occurred_at,
         "break_glass": break_glass,
+        "exported": exported,
     }
 
 
