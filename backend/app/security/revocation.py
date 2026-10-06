@@ -71,6 +71,11 @@ def revoke_recipient(
     dead_leases = offline_grants.revoke(
         session, recipient_id=recipient_id, actor_id=actor_id, reason=reason
     )
+    from ..services import sharing_service
+
+    dead_shares = sharing_service.mark_revoked(
+        session, actor_id=actor_id, reason=reason, recipient_id=recipient_id
+    )
 
     audit_service.record(
         session,
@@ -78,7 +83,7 @@ def revoke_recipient(
         action="USER_REVOKED",
         target_type="RECIPIENT",
         target_id=recipient_id,
-        detail={"reason": reason},
+        detail={"reason": reason, "shares_revoked": dead_shares},
     )
     record_revocation(
         session,
@@ -87,7 +92,8 @@ def revoke_recipient(
         scope="ALL",
         reason=reason,
         actor_id=actor_id,
-        cascaded_to=[f"offline_grant:{gid}" for gid in dead_leases],
+        cascaded_to=[f"offline_grant:{gid}" for gid in dead_leases]
+        + [f"share:{sid}" for sid in dead_shares],
     )
     incident_engine.raise_event(
         session,
@@ -238,13 +244,27 @@ def revoke_document_access(
         actor_id=actor_id,
         reason=reason,
     )
+    from ..services import sharing_service
+
+    dead_shares = sharing_service.mark_revoked(
+        session,
+        actor_id=actor_id,
+        reason=reason,
+        document_id=document_id,
+        recipient_id=recipient_id,
+    )
     audit_service.record(
         session,
         actor_id=actor_id,
         action="DOCUMENT_PERMISSION_CHANGED",
         target_type="DOCUMENT_GRANT",
         target_id=grant.grant_id,
-        detail={"document_id": document_id, "recipient_id": recipient_id, "reason": reason},
+        detail={
+            "document_id": document_id,
+            "recipient_id": recipient_id,
+            "reason": reason,
+            "shares_revoked": dead_shares,
+        },
     )
     record_revocation(
         session,
@@ -253,13 +273,15 @@ def revoke_document_access(
         scope="DOCUMENT",
         reason=reason,
         actor_id=actor_id,
-        cascaded_to=[f"offline_grant:{gid}" for gid in dead_leases],
+        cascaded_to=[f"offline_grant:{gid}" for gid in dead_leases]
+        + [f"share:{sid}" for sid in dead_shares],
     )
     return {
         "document_id": document_id,
         "recipient_id": recipient_id,
         "status": "REVOKED",
         "offline_grants_revoked": dead_leases,
+        "shares_revoked": dead_shares,
         "plain_explanation": "This recipient can no longer open the document, even though their clearance is unchanged.",
     }
 

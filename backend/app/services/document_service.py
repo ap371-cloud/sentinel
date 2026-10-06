@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..core.config import PATHS, SETTINGS, Clearance, DocumentAccess, DocumentLifecycle, Role
@@ -14,7 +14,7 @@ from ..core.identifiers import next_id
 from ..core.timeutil import has_expired, iso, utcnow
 from ..core.exceptions import ForgeError, NotFound
 from ..core import rights
-from ..crypto.hashing import file_digest_bundle
+from ..crypto.hashing import b64d, canonical_bytes, file_digest_bundle
 from ..database import shared as shared_store
 from ..documents import encryption, pdf, protection
 from ..models.documents import Document, DocumentVersion, OfflineGrant, RecipientGrant
@@ -282,16 +282,26 @@ def _has_usable_keys(recipient_id: str) -> bool:
 
 
 def grant(
-    session: Session, *, document_id: str, recipient_id: str, actor_id: str, note: str | None = None
+    session: Session,
+    *,
+    document_id: str,
+    recipient_id: str,
+    actor_id: str,
+    note: str | None = None,
+    expires_at: datetime | None = None,
 ) -> dict[str, Any]:
     existing = session.execute(
         select(RecipientGrant).where(
             RecipientGrant.document_id == document_id,
             RecipientGrant.recipient_id == recipient_id,
             RecipientGrant.revoked_at.is_(None),
+            or_(RecipientGrant.expires_at.is_(None), RecipientGrant.expires_at > utcnow()),
         )
     ).scalar_one_or_none()
     if existing is not None:
+        # A grant may predate key delivery; backfill the wrap while we are here.
+        document = _require(session, document_id)
+        _deliver_key(session, document=document, recipient_id=recipient_id)
         return {"grant_id": existing.grant_id, "status": "ALREADY_GRANTED"}
 
     recipient = session.get(Recipient, recipient_id)
@@ -305,21 +315,69 @@ def grant(
             document_id=document_id,
             recipient_id=recipient_id,
             granted_by=actor_id,
+            expires_at=expires_at,
             note=note,
         )
     )
     document = _require(session, document_id)
     if document.status == DocumentAccess.DRAFT:
         document.status = DocumentAccess.SEALED
+    wrapped = _deliver_key(session, document=document, recipient_id=recipient_id)
     audit_service.record(
         session,
         actor_id=actor_id,
         action="DOCUMENT_PERMISSION_CHANGED",
         target_type="DOCUMENT_GRANT",
         target_id=grant_id,
-        detail={"document_id": document_id, "recipient_id": recipient_id, "grant": "ADDED", "note": note},
+        detail={
+            "document_id": document_id,
+            "recipient_id": recipient_id,
+            "grant": "ADDED",
+            "note": note,
+            "content_key_wrapped": wrapped,
+        },
     )
-    return {"grant_id": grant_id, "status": "GRANTED", "recipient_id": recipient_id, "document_id": document_id}
+    return {
+        "grant_id": grant_id,
+        "status": "GRANTED",
+        "recipient_id": recipient_id,
+        "document_id": document_id,
+        "content_key_wrapped": wrapped,
+    }
+
+
+def _deliver_key(session: Session, *, document: Document, recipient_id: str) -> bool:
+    """Wraps the content key for one more recipient on the current version.
+
+    Need-to-know without key delivery is a promise nobody can use, so every
+    new grant carries the key material — additively, leaving the ciphertext and
+    every other recipient's wrap untouched.
+    """
+    version = current_version(session, document.document_id)
+    if not version.sealed_path or not _has_usable_keys(recipient_id):
+        return False
+    wraps = json.loads(version.key_wraps or "[]")
+    if any(wrap.get("recipient_id") == recipient_id for wrap in wraps):
+        return False
+    sealed_path = Path(version.sealed_path)
+    source = (
+        sealed_path
+        if sealed_path.exists()
+        else shared_store.artefact_materialize(sealed_path)
+    )
+    sealed = json.loads(source.read_text())
+    new_wrap = encryption.wrap_document_key(
+        document_key=b64d(sealed["document_key"]),
+        recipient_id=recipient_id,
+        document_id=document.document_id,
+        version_id=version.version_id,
+        content_sha256=version.content_sha256,
+    ).to_dict()
+    sealed["wrapped_keys"].append(new_wrap)
+    sealed_path.write_bytes(canonical_bytes(sealed))
+    shared_store.artefact_put_file(sealed_path)
+    version.key_wraps = json.dumps(sealed["wrapped_keys"])
+    return True
 
 
 def has_active_grant(session: Session, document_id: str, recipient_id: str) -> bool:
@@ -331,6 +389,7 @@ def has_active_grant(session: Session, document_id: str, recipient_id: str) -> b
                 RecipientGrant.document_id == document_id,
                 RecipientGrant.recipient_id == recipient_id,
                 RecipientGrant.revoked_at.is_(None),
+                or_(RecipientGrant.expires_at.is_(None), RecipientGrant.expires_at > utcnow()),
             )
         ).scalar_one()
         > 0
@@ -342,7 +401,9 @@ def _granted_recipients(session: Session, document_id: str) -> list[str]:
         row.recipient_id
         for row in session.execute(
             select(RecipientGrant).where(
-                RecipientGrant.document_id == document_id, RecipientGrant.revoked_at.is_(None)
+                RecipientGrant.document_id == document_id,
+                RecipientGrant.revoked_at.is_(None),
+                or_(RecipientGrant.expires_at.is_(None), RecipientGrant.expires_at > utcnow()),
             )
         ).scalars()
     ]

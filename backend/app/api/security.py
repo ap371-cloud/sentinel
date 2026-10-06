@@ -274,6 +274,12 @@ def approve(
         approver_role=approver.role,
     )
     result["reason"] = payload.reason
+    if result.get("action") == "DOCUMENT_SHARING" and result.get("status") == "APPROVED":
+        from ..services import sharing_service
+
+        result["share"] = sharing_service.finalize(
+            session, approval_id=approval_id, approver_id=approver.recipient_id
+        )
     return result
 
 
@@ -284,13 +290,21 @@ def reject(
     session: Session = Depends(db),
     approver: Recipient = Depends(permitted("approval.decide")),
 ) -> dict[str, Any]:
-    return approval_service.reject(
+    result = approval_service.reject(
         session,
         approval_id=approval_id,
         approver_id=approver.recipient_id,
         approver_role=approver.role,
         reason=payload.reason,
     )
+    if result.get("action") == "DOCUMENT_SHARING":
+        from ..services import sharing_service
+
+        result["share"] = sharing_service.record_denial(
+            session, approval_id=approval_id, approver_id=approver.recipient_id,
+            reason=payload.reason,
+        )
+    return result
 
 
 @router.get("/approvals")

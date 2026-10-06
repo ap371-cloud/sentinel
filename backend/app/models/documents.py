@@ -144,7 +144,38 @@ class RecipientGrant(Base):
     granted_by: Mapped[str] = mapped_column(String(32))
     granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: When an external share put an end date on this grant, null = the
+    #: document's own policy governs.
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ShareRequest(Base):
+    """One external-sharing decision, end to end: who asked, who verified,
+    approved or denied, until when, and under which policy version. Rows are
+    updated through their workflow but never deleted."""
+
+    __tablename__ = "share_requests"
+
+    share_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("documents.document_id"), index=True)
+    recipient_id: Mapped[str] = mapped_column(String(32), index=True)
+    requested_by: Mapped[str] = mapped_column(String(32))
+    #: SHARE_REQUESTED / APPROVED / DENIED / REVOKED
+    status: Mapped[str] = mapped_column(String(24), default="SHARE_REQUESTED", index=True)
+    justification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The rights matrix in force when the share was raised — the record of
+    #: what was shared, not a narrower per-share grant.
+    rights_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approval_id: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    grant_id: Mapped[str | None] = mapped_column(String(56), nullable=True)
+    policy_version: Mapped[str] = mapped_column(String(24))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class OfflineGrant(Base):

@@ -15,7 +15,7 @@ from ..core.rights import require_right
 from ..models.documents import Document
 from ..models.identity import Recipient
 from ..security.revocation import revoke_document_access
-from ..services import approval_service, document_service
+from ..services import approval_service, document_service, sharing_service
 from .deps import db, permitted, readable
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -138,6 +138,44 @@ def grant(
         actor_id=admin.recipient_id,
         note=payload.note,
     )
+
+
+class ShareRequestBody(BaseModel):
+    recipient_id: str
+    justification: str = Field(min_length=10, max_length=1000)
+    expires_in_days: int = Field(default=0, ge=0, le=365)
+
+
+@router.post("/{document_id}/shares")
+def request_share(
+    document_id: str,
+    payload: ShareRequestBody,
+    session: Session = Depends(db),
+    granter: Recipient = Depends(permitted("document.grant")),
+) -> dict[str, Any]:
+    """External sharing: identify → verify clearance, unit, role, need-to-know
+    and policy → grant or route to two-person approval → log. The share carries
+    an optional end date; every decision lands on the share register."""
+    return sharing_service.request_share(
+        session,
+        document_id=document_id,
+        target_recipient_id=payload.recipient_id,
+        requested_by=granter.recipient_id,
+        justification=payload.justification,
+        expires_in_days=payload.expires_in_days,
+    )
+
+
+@router.get("/{document_id}/shares")
+def list_shares(
+    document_id: str,
+    session: Session = Depends(db),
+    _: Recipient = Depends(readable("document.read")),
+) -> dict[str, Any]:
+    document = session.get(Document, document_id)
+    if document is None:
+        raise NotFound(f"No document {document_id}.")
+    return {"shares": sharing_service.list_shares(session, document_id=document_id)}
 
 
 class AccessRevokeRequest(BaseModel):
