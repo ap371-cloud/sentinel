@@ -14,6 +14,7 @@ from ..core.exceptions import NotFound
 from ..core.identifiers import case_id as make_case_id
 from ..crypto.hashing import canonical_bytes, file_digest_bundle, sha256_hex
 from ..crypto.signatures import verify_recipient_signature
+from ..database import shared as shared_store
 from ..documents.pdf import canonicalize, render_gray
 from ..ledger.chain import NETWORK
 from ..models.documents import Document, DocumentVersion
@@ -92,7 +93,8 @@ def store_evidence(
     """
     stored = PATHS.evidence / case.case_id / f"{Path(leaked_path).name}"
     stored.parent.mkdir(parents=True, exist_ok=True)
-    stored.write_bytes(Path(leaked_path).read_bytes())
+    stored.write_bytes(shared_store.artefact_materialize(Path(leaked_path)).read_bytes())
+    shared_store.artefact_put_file(stored)
     digest = file_digest_bundle(stored)
     # Counted from the database rather than the relationship collection, which
     # is not refreshed after the previous insert within the same transaction.
@@ -427,6 +429,7 @@ def content_similarity(suspect_pdf: Path, original_pdf: Path) -> dict[str, Any]:
     because the embedding itself changes pixels. An edited copy falls far below
     that, which is what separates the two cases.
     """
+    shared_store.artefact_materialize(original_pdf)
     if not original_pdf.exists():
         return {"original_available": False, "psnr_db": None, "pages": []}
     suspect_pages = render_gray(suspect_pdf)
@@ -567,6 +570,7 @@ def build_report(session: Session, *, evidence: EvidenceItem, investigator: Reci
 
     destination = PATHS.evidence / evidence.case_id / f"{evidence.evidence_id}-report.json"
     destination.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    shared_store.artefact_put_file(destination)
     evidence.report_path = str(destination)
     evidence.report_sha256 = report["report_sha256"]
 
@@ -588,6 +592,7 @@ def build_report(session: Session, *, evidence: EvidenceItem, investigator: Reci
 
 def verify_report_integrity(path: Path) -> dict[str, Any]:
     """Recomputes the report hash. Excludes the hash field itself."""
+    shared_store.artefact_materialize(path)
     stored = json.loads(Path(path).read_text(encoding="utf-8"))
     recorded = stored.pop("report_sha256", "")
     recomputed = sha256_hex(canonical_bytes(stored))

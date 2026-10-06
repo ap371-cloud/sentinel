@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..core.config import PATHS
 from ..core.exceptions import ForgeError, NotFound
+from ..database import shared as shared_store
 from ..models.forensic import EvidenceItem, InvestigationCase
 from ..models.identity import Recipient
 from ..services import forensic_service, watermark_service
@@ -93,7 +94,7 @@ def extract(
     Returns FOUND, WEAK MATCH, CORRUPTED or NOT FOUND with a measured
     confidence. A failure here is a legitimate outcome.
     """
-    suspect = Path(payload.file_path)
+    suspect = shared_store.artefact_materialize(Path(payload.file_path))
     if not suspect.exists():
         raise NotFound(f"No file at {payload.file_path}.")
     verdict, result, versions = watermark_service.extract_and_match(

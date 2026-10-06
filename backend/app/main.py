@@ -52,15 +52,20 @@ def bootstrap() -> dict[str, object]:
     create_ops_schema()
     for node_id in NETWORK.node_ids:
         create_node_schema(node_id)
-    NETWORK.ensure_ready()
 
+    from .database.shared import hold_bootstrap_lock
     from .services import approval_service, seed_service
 
     with ops_session() as session:
+        # Sibling instances cold-starting together would otherwise seed in
+        # parallel: duplicate identifiers, double key issuance, two genesis
+        # blocks. The advisory lock is held until this session commits.
+        hold_bootstrap_lock(session)
         ensure_server_identity()
         approval_service.active_policy(session)
         _reseed_identifiers(session)
         seeded = seed_service.seed(session)
+        NETWORK.ensure_ready()
     logger.info(
         "bootstrap complete — ledger nodes %s online, %d identities, %d documents",
         ",".join(NETWORK.node_ids),

@@ -14,6 +14,7 @@ from ..core.identifiers import next_id
 from ..core.timeutil import has_expired, iso, utcnow
 from ..core.exceptions import ForgeError, NotFound
 from ..crypto.hashing import file_digest_bundle
+from ..database import shared as shared_store
 from ..documents import encryption, pdf
 from ..models.documents import Document, DocumentVersion, RecipientGrant
 from ..models.identity import Recipient
@@ -534,8 +535,16 @@ def purge_plaintext(session: Session, document_id: str, actor_id: str) -> dict[s
     for version in session.execute(
         select(DocumentVersion).where(DocumentVersion.document_id == document_id)
     ).scalars():
-        if version.sealed_path and Path(version.normalized_pdf_path).exists():
-            Path(version.normalized_pdf_path).unlink()
+        if not version.sealed_path:
+            continue
+        target = Path(version.normalized_pdf_path)
+        # The shared row goes too, or a sibling instance could re-materialise
+        # the very plaintext this call just removed.
+        shared_removed = shared_store.artefact_delete(target)
+        if target.exists():
+            target.unlink()
+            removed.append(version.normalized_pdf_path)
+        elif shared_removed:
             removed.append(version.normalized_pdf_path)
     audit_service.record(
         session,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import stat
 from dataclasses import asdict, dataclass
@@ -13,11 +14,15 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..core.config import PATHS, SETTINGS, KeyStatus
 from ..core.exceptions import ForgeError
+from ..database import shared as shared_store
 from .hashing import b64d, b64e
 from .pqc import PQC, PQCProvider
+
+logger = logging.getLogger(__name__)
 
 IDENTITY_STORE = PATHS.keys / "identities.json"
 WATERMARK_ROOT = PATHS.keys / "watermark_root.json"
@@ -97,6 +102,25 @@ def load_master_secret() -> bytes:
     if passphrase:
         return _derive_kek(passphrase.encode("utf-8"), salt=b"forge-master-static")
 
+    if shared_store.shared_enabled():
+        try:
+            stored = shared_store.master_secret_read()
+            if stored is not None:
+                return stored
+            if shared_store.vault_keys_exist():
+                raise MasterSecretMismatch(
+                    "The shared key store holds issued keys but no master-secret row exists, so "
+                    "none of them can ever be decrypted again. Restore the original secret or "
+                    "wipe vault_keys/vault_meta together to start a clean instance."
+                )
+            secret = os.urandom(32)
+            shared_store.master_secret_write(secret)
+            return secret
+        except SQLAlchemyError:
+            # The database is unreachable during import; the local fallback keeps
+            # the process startable so /api/health can name the real cause.
+            logger.warning("shared master secret unreadable at start-up; using the local secret path")
+
     if DEV_SECRET_FILE.exists():
         return DEV_SECRET_FILE.read_bytes()
 
@@ -151,7 +175,13 @@ class KeyVault:
 
     # ---- persistence -------------------------------------------------------
 
+    def _shared(self) -> bool:
+        return shared_store.shared_enabled()
+
     def _load(self) -> None:
+        if self._shared():
+            self._load_shared(strict=False)
+            return
         if IDENTITY_STORE.exists():
             raw = json.loads(IDENTITY_STORE.read_text(encoding="utf-8"))
             self._records = {
@@ -164,6 +194,34 @@ class KeyVault:
                 b64d(blob["nonce"]), b64d(blob["ciphertext"]), b"forge:watermark-root:v1"
             )
 
+    def _load_shared(self, *, strict: bool) -> None:
+        """Re-reads every vault row from the shared store.
+
+        Nothing is cached across calls: a sibling instance may have issued an
+        identity or rotated a key a moment ago, and verification against a
+        stale public key is indistinguishable from a forged signature."""
+        try:
+            owners = shared_store.vault_read_owners()
+            root = shared_store.vault_read_meta("watermark_root")
+        except SQLAlchemyError:
+            if strict:
+                raise
+            logger.warning("shared keystore unreadable at start-up; continuing with an empty cache")
+            return
+        self._records = {
+            owner: {purpose: KeyRecord(**fields) for purpose, fields in json.loads(payload).items()}
+            for owner, payload in owners.items()
+        }
+        self._watermark_root = (
+            self._unwrap_or_die(b64d(blob["nonce"]), b64d(blob["ciphertext"]), b"forge:watermark-root:v1")
+            if root
+            else None
+        )
+
+    def _refresh(self) -> None:
+        if self._shared():
+            self._load_shared(strict=True)
+
     def _unwrap_or_die(self, nonce: bytes, ciphertext: bytes, aad: bytes) -> bytes:
         try:
             return _aes_unwrap(self._kek, nonce, ciphertext, aad)
@@ -175,7 +233,18 @@ class KeyVault:
                 "environment variable."
             ) from exc
 
-    def _persist(self) -> None:
+    def _persist(self, owner_id: str | None = None) -> None:
+        if self._shared():
+            owners = (
+                {owner_id: self._records.get(owner_id, {})}
+                if owner_id is not None
+                else self._records
+            )
+            for owner, purposes in owners.items():
+                shared_store.vault_write_owner(
+                    owner, json.dumps({purpose: asdict(record) for purpose, record in purposes.items()})
+                )
+            return
         payload = {
             owner: {purpose: asdict(record) for purpose, record in purposes.items()}
             for owner, purposes in self._records.items()
@@ -186,6 +255,7 @@ class KeyVault:
     # ---- issuance ----------------------------------------------------------
 
     def issue_identity(self, owner_id: str, *, ttl_days: int = 365) -> dict[str, KeyRecord]:
+        self._refresh()
         signing = self.provider.generate_signing_keypair()
         kem = self.provider.generate_kem_keypair()
         created = _now()
@@ -220,7 +290,7 @@ class KeyVault:
             ),
             kem.secret_key,
         )
-        self._persist()
+        self._persist(owner_id)
         return {"signing": signing_record, "kem": kem_record}
 
     def _store_secret(self, record: KeyRecord, secret: bytes) -> KeyRecord:
@@ -232,6 +302,7 @@ class KeyVault:
         return record
 
     def rotate_signing_key(self, owner_id: str) -> KeyRecord:
+        self._refresh()
         existing = self._records.get(owner_id, {}).get("SIGNING")
         if existing:
             existing.status = KeyStatus.ROTATED
@@ -252,19 +323,21 @@ class KeyVault:
             ),
             fresh.secret_key,
         )
-        self._persist()
+        self._persist(owner_id)
         return record
 
     def set_status(self, owner_id: str, purpose: str, status: str) -> None:
+        self._refresh()
         record = self._records.get(owner_id, {}).get(purpose)
         if record is None:
             raise KeyStoreError(f"No {purpose} key for {owner_id}")
         record.status = status
-        self._persist()
+        self._persist(owner_id)
 
     # ---- consumption -------------------------------------------------------
 
     def _secret(self, owner_id: str, purpose: str, *, require_active: bool = True) -> bytes:
+        self._refresh()
         record = self._records.get(owner_id, {}).get(purpose)
         if record is None:
             raise KeyStoreError(f"No {purpose} key issued to {owner_id}")
@@ -281,12 +354,14 @@ class KeyVault:
         )
 
     def signing_public_key(self, owner_id: str) -> bytes:
+        self._refresh()
         record = self._records.get(owner_id, {}).get("SIGNING")
         if record is None:
             raise KeyStoreError(f"No signing key issued to {owner_id}")
         return b64d(record.public_key)
 
     def kem_public_key(self, owner_id: str) -> bytes:
+        self._refresh()
         record = self._records.get(owner_id, {}).get("KEM")
         if record is None:
             raise KeyStoreError(f"No KEM key issued to {owner_id}")
@@ -312,6 +387,7 @@ class KeyVault:
         return self._secret(owner_id, "SIGNING")
 
     def public_metadata(self, owner_id: str | None = None) -> list[dict[str, Any]]:
+        self._refresh()
         owners = [owner_id] if owner_id else list(self._records)
         out: list[dict[str, Any]] = []
         for owner in owners:
@@ -324,25 +400,38 @@ class KeyVault:
     def watermark_root(self) -> bytes:
         """The watermark derivation key. Without it an extracted tag cannot be
         turned back into a recipient, session or document."""
+        self._refresh()
         if self._watermark_root is None:
             self._watermark_root = os.urandom(32)
             nonce, blob = _aes_wrap(self._kek, self._watermark_root, b"forge:watermark-root:v1")
-            WATERMARK_ROOT.write_text(
-                json.dumps({"nonce": b64e(nonce), "ciphertext": b64e(blob)}, indent=2),
-                encoding="utf-8",
-            )
-            _restrict(WATERMARK_ROOT)
+            payload = json.dumps({"nonce": b64e(nonce), "ciphertext": b64e(blob)}, indent=2)
+            if self._shared():
+                # Two instances may generate concurrently; the loser re-reads the
+                # winner's row so every instance derives tags from one root.
+                shared_store.vault_write_meta("watermark_root", payload, only_if_absent=True)
+                self._load_shared(strict=True)
+            else:
+                WATERMARK_ROOT.write_text(payload, encoding="utf-8")
+                _restrict(WATERMARK_ROOT)
         return self._watermark_root
 
     def storage_report(self) -> dict[str, Any]:
+        self._refresh()
+        shared = self._shared()
         return {
             "private_keys_at_rest": "AES-256-GCM under a scrypt-derived key-encryption-key",
             "master_secret_source": (
                 "environment passphrase"
                 if os.getenv(PASSENSPHRASE_ENV)
+                else "shared database row (SENTINEL_DATABASE_URL)"
+                if shared
                 else "generated local file (DEVELOPMENT ONLY)"
             ),
-            "keystore_path": str(IDENTITY_STORE),
+            "keystore_path": (
+                "postgresql: vault_keys / vault_meta tables"
+                if shared
+                else str(IDENTITY_STORE)
+            ),
             "identities_held": sorted(self._records),
             "production_requirement": (
                 "Replace with HSM/KMS-backed non-exportable keys; the local file store is a "

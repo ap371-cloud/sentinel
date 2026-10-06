@@ -7,6 +7,7 @@ import pymupdf as fitz
 import numpy as np
 
 from ..core.config import SETTINGS
+from ..database import shared as shared_store
 
 TEXT_PAGE_WIDTH = 595
 TEXT_PAGE_HEIGHT = 842
@@ -35,6 +36,7 @@ def normalize_to_pdf(source: Path, destination: Path) -> dict[str, Any]:
         document.save(destination, garbage=3, deflate=True)
         page_count = document.page_count
         document.close()
+    shared_store.artefact_put_file(destination)
     return {"path": str(destination), "page_count": page_count}
 
 
@@ -58,6 +60,7 @@ def render_gray(pdf_path: Path, dpi: int = SETTINGS.watermark_dpi) -> list[np.nd
     """Rasterises every page to 2-D grayscale float32 in [0, 1]. Using a single
     fixed geometry on both sides is what lets the extractor rebuild the same
     8x8 block grid the embedder used."""
+    shared_store.artefact_materialize(pdf_path)
     pages: list[np.ndarray] = []
     zoom = dpi / 72.0
     matrix = fitz.Matrix(zoom, zoom)

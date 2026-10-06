@@ -13,6 +13,7 @@ from ..core.exceptions import DocumentHashMismatch
 from ..crypto.hashing import b64d, b64e, canonical_bytes, sha256_hex
 from ..crypto.key_management import VAULT, derive_wrapping_key
 from ..crypto.pqc import PQC
+from ..database import shared as shared_store
 
 DEK_BYTES = 32
 NONCE_BYTES = 12
@@ -77,7 +78,7 @@ def seal(
     ciphertext, many recipients, each able to unwrap the content key only
     through their own post-quantum key-establishment key.
     """
-    plaintext = plaintext_pdf.read_bytes()
+    plaintext = shared_store.artefact_materialize(plaintext_pdf).read_bytes()
     document_key = os.urandom(DEK_BYTES)
     nonce = os.urandom(NONCE_BYTES)
     aad = _content_aad(document_id, version_id, content_sha256)
@@ -102,6 +103,7 @@ def seal(
         ).to_dict() for recipient_id in recipient_ids],
     }
     sealed_path.write_bytes(canonical_bytes(sealed))
+    shared_store.artefact_put_file(sealed_path)
     return sealed
 
 
@@ -143,6 +145,7 @@ def open_sealed(
     version_id: str,
     content_sha256: str,
 ) -> bytes:
+    shared_store.artefact_materialize(sealed_path)
     sealed = json.loads(sealed_path.read_text(encoding="utf-8"))
     document_key = unwrap_document_key(
         wrap=wrap,

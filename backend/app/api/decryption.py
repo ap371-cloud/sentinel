@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..core.config import PATHS, DeviceTrust
 from ..core.exceptions import NotFound
 from ..core.timeutil import utcnow
+from ..database import shared as shared_store
 from ..models.identity import Device, Recipient
 from ..security import incident_engine, revocation
 from ..services import audit_service, decryption_service, identity_service
@@ -124,8 +125,17 @@ def session_document(
 
 
 def _locate_artefact(session_id: str) -> Path | None:
-    matches = sorted((PATHS.evidence / "recipient_copies").glob(f"*/{session_id}/*.pdf"))
-    return matches[0] if matches else None
+    pattern = f"*/{session_id}/*.pdf"
+    matches = sorted((PATHS.evidence / "recipient_copies").glob(pattern))
+    if matches:
+        return matches[0]
+    # The copy may live only on the instance that produced it; pull it down
+    # from the shared store before giving up.
+    for candidate in shared_store.artefact_glob(str(PATHS.evidence / "recipient_copies" / pattern)):
+        materialized = shared_store.artefact_materialize(Path(candidate))
+        if materialized.exists():
+            return materialized
+    return None
 
 
 @router.get("/sessions/{session_id}/evidence-chain")

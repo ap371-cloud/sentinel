@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..core.config import PATHS, SETTINGS
 from ..crypto.hashing import canonical_bytes, sha256_hex
 from ..crypto.key_management import VAULT
+from ..database import shared as shared_store
 from ..models.documents import Document, DocumentVersion
 from ..models.sessions import Watermark
 from .audit_service import record as audit_record
@@ -69,6 +70,7 @@ def embed_for_session(
         version_id=version.version_id,
         tag_hex=tag,
     )
+    shared_store.artefact_put_file(output_pdf)
     return {
         "output_path": str(output_pdf),
         "psnr_db": round(result.psnr_db, 2),

@@ -2,9 +2,11 @@
 
 The serverless filesystem is read-only outside /tmp, so all mutable state
 (SQLite, sealed documents, key vault, ledger journals) is redirected there and
-re-created on each cold start. For a working model this is acceptable; real
-persistence uses the same code against a normal server with
-SENTINEL_DATA_ROOT pointed at a durable volume.
+re-created on each cold start. With SENTINEL_DATABASE_URL set, the parts that
+must agree across instances — record store, key vault, artefacts and
+identifier counters — live in PostgreSQL instead, which is what makes the
+forensic chain survive request routing to a different warm instance. Without
+the variable the local behaviour above still applies, for development.
 """
 
 from __future__ import annotations

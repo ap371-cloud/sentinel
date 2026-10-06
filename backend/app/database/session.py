@@ -28,7 +28,9 @@ def _engine_for(path: Path) -> Engine:
         # Serverless instances come and go, and each one builds its own pool.
         # A wide per-process pool would burn Supabase's connection budget once
         # Vercel keeps more than one instance warm, so stay deliberately narrow.
-        return create_engine(url, future=True, pool_pre_ping=True, pool_size=1, max_overflow=2)
+        # The ceiling still has to cover a request holding its ORM session while
+        # a keystore or artefact helper borrows a second connection.
+        return create_engine(url, future=True, pool_pre_ping=True, pool_size=1, max_overflow=4)
 
     engine = create_engine(
         f"sqlite:///{path.as_posix()}",
