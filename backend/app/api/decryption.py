@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -16,7 +16,7 @@ from ..core.timeutil import utcnow
 from ..database import shared as shared_store
 from ..models.documents import Document
 from ..models.identity import Device, Recipient
-from ..security import incident_engine, revocation
+from ..security import incident_engine, locations, revocation
 from ..services import audit_service, decryption_service, identity_service
 from .deps import db, permitted, readable
 
@@ -56,6 +56,7 @@ def authorize(
 @router.post("/decrypt")
 def decrypt(
     payload: DecryptRequest,
+    request: Request,
     session: Session = Depends(db),
     recipient: Recipient = Depends(permitted("document.decrypt")),
 ) -> dict[str, Any]:
@@ -64,7 +65,10 @@ def decrypt(
     Every authorisation input is re-read from live state before any plaintext
     exists: account status, need-to-know grant, clearance, unit scope, document
     policy and lifecycle, device registration and trust, key status, replay
-    freshness and emergency lockdown state.
+    freshness, declared trusted zone and emergency lockdown state.
+
+    The zone comes from the X-Sentinel-Zone header — a gateway-declared
+    trusted-zone identifier, never a resolved physical position.
     """
     return decryption_service.decrypt(
         session,
@@ -76,6 +80,7 @@ def decrypt(
         offline=payload.offline,
         break_glass_approval_id=payload.break_glass_approval_id,
         export_as=payload.export_as,
+        zone=locations.resolve_zone(request.headers.get(locations.ZONE_HEADER)),
     )
 
 

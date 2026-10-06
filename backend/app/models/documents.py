@@ -53,6 +53,9 @@ class Document(Base):
     #: Deterrent overlay (recipient/session/classification text) on each copy;
     #: separate from watermark_required, which governs the invisible layer.
     visible_watermark: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: JSON list of trusted zones the document may be decrypted from
+    #: (["HQ-CAMPUS", ...]); "[]" = no zone restriction.
+    allowed_locations: Mapped[str] = mapped_column(Text, default="[]")
     second_approval_required: Mapped[bool] = mapped_column(Boolean, default=False)
     access_expiry: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     maximum_sessions: Mapped[int] = mapped_column(Integer, default=0)
@@ -84,6 +87,7 @@ class Document(Base):
             "offline_allowed": self.offline_allowed,
             "watermark_required": self.watermark_required,
             "visible_watermark": self.visible_watermark,
+            "allowed_locations": json.loads(self.allowed_locations or "[]"),
             "second_approval_required": self.second_approval_required,
             "access_expiry": self.access_expiry.isoformat(timespec="seconds") if self.access_expiry else None,
             "maximum_sessions": self.maximum_sessions,

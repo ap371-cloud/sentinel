@@ -20,6 +20,7 @@ from ..documents import encryption, pdf, protection
 from ..models.documents import Document, DocumentVersion, OfflineGrant, RecipientGrant
 from ..models.identity import Recipient
 from ..models.sessions import DecryptionSession
+from ..security import locations
 from . import audit_service
 
 
@@ -169,6 +170,10 @@ def _apply_policy(document: Document, policy: dict[str, Any]) -> None:
         if not isinstance(overrides, dict):
             raise ForgeError("The rights policy must be an object of right-name to ALLOW/DENY.")
         document.rights = json.dumps(rights.validate_overrides(overrides))
+    if "allowed_locations" in policy:
+        document.allowed_locations = json.dumps(
+            locations.validate_zones(policy["allowed_locations"])
+        )
 
 
 def add_version(
@@ -584,6 +589,12 @@ def describe(session: Session, document_id: str) -> dict[str, Any]:
                     "visible deterrent text where enabled",
                 ],
                 "limitation": protection.LIMITATION,
+            },
+            "location_policy": {
+                "allowed_zones": json.loads(document.allowed_locations or "[]"),
+                "zone_source": "X-Sentinel-Zone request header (declared trusted-zone identifier)",
+                "every_decision_logged": True,
+                "limitation": locations.LIMITATION,
             },
         }
     )

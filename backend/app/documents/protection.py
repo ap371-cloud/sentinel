@@ -9,6 +9,7 @@ import pymupdf as fitz
 
 from ..core.config import SETTINGS
 from ..database import shared as shared_store
+from ..security import locations
 
 RECEIPT_FILE = "sentinel-policy-receipt.json"
 
@@ -66,6 +67,10 @@ def build_receipt(
         "visible_watermark": {
             "enabled": document.visible_watermark,
             "template": SETTINGS.visible_watermark_template,
+        },
+        "location_policy": {
+            "allowed_zones": json.loads(document.allowed_locations or "[]"),
+            "limitation": locations.LIMITATION,
         },
         "notice": LIMITATION,
     }

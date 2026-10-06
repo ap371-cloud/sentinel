@@ -230,6 +230,10 @@ class RequestContext:
     offline_allowed: bool = True
     offline_grant_expired: bool = False
     offline_grant_revoked: bool = False
+    #: Declared trusted zone for this request (X-Sentinel-Zone), and the
+    #: document's own zone restriction. Empty list = unrestricted.
+    location_zone: str | None = None
+    document_allowed_zones: list[str] = field(default_factory=list)
     decrypt_right: str = "ALLOW"
     break_glass_approved: bool = False
     now: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -384,6 +388,32 @@ def evaluate_decryption(
         offline_ok,
         offline_reason,
         offline_plain,
+    )
+    if not context.document_allowed_zones:
+        location_ok, location_reason = True, "LOCATION_NOT_RESTRICTED"
+        location_plain = "The document does not restrict decryption to particular trusted zones."
+    elif context.location_zone is None:
+        location_ok, location_reason = False, "LOCATION_UNKNOWN"
+        location_plain = (
+            "The document is restricted to trusted zones and this request declared no zone "
+            "(X-Sentinel-Zone header)."
+        )
+    elif context.location_zone in context.document_allowed_zones:
+        location_ok, location_reason = True, "LOCATION_OK"
+        location_plain = (
+            f"Request zone {context.location_zone} is inside the document's trusted zones."
+        )
+    else:
+        location_ok, location_reason = False, "LOCATION_NOT_ALLOWED"
+        location_plain = (
+            f"Request zone {context.location_zone} is outside the document's trusted zones "
+            f"({', '.join(context.document_allowed_zones)})."
+        )
+    record(
+        "location_permitted",
+        location_ok,
+        location_reason,
+        location_plain,
     )
     policy_ok = (not context.lockdown_active) or context.break_glass_approved
     record(

@@ -152,6 +152,7 @@ def decrypt(
     offline: bool = False,
     break_glass_approval_id: str | None = None,
     export_as: str | None = None,
+    zone: str | None = None,
 ) -> dict[str, Any]:
     """Full authorised decryption.
 
@@ -208,6 +209,7 @@ def decrypt(
         policy=policy,
         offline=offline,
         break_glass=break_glass,
+        zone=zone,
     )
 
     decryption_session = DecryptionSession(
@@ -385,6 +387,7 @@ def _authorize(
     policy,
     offline: bool,
     break_glass: bool,
+    zone: str | None = None,
 ):
     nonce_row = session.get(RequestNonce, nonce)
     signing_key = session.execute(
@@ -443,6 +446,8 @@ def _authorize(
         offline_allowed=usage["OFFLINE"] == "ALLOW",
         offline_grant_expired=lease_expired,
         offline_grant_revoked=lease_revoked,
+        location_zone=zone,
+        document_allowed_zones=json.loads(document.allowed_locations or "[]"),
         decrypt_right=usage["DECRYPT"],
         break_glass_approved=break_glass,
     )
