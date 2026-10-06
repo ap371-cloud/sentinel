@@ -19,6 +19,7 @@ from ..core.permissions import (
     raise_for_decision,
     require_permission,
 )
+from ..core.rights import effective_rights, require_right
 from ..crypto.hashing import b64e, canonical_bytes, sha256_hex
 from ..crypto.signatures import event_payload, sign_as_recipient
 from ..documents import encryption
@@ -164,6 +165,8 @@ def decrypt(
     if document is None:
         raise NotFound(f"No document {document_id}.")
     version = document_service.current_version(session, document_id)
+    if export_as:
+        require_right(document, "EXPORT", operation="Saving a renamed export copy")
     device = session.get(Device, device_id)
     policy = approval_service.active_policy(session)
     _assert_nonce_fresh(
@@ -366,6 +369,7 @@ def _authorize(
     ).scalars().first()
 
     signing_expired = has_expired(signing_key.expires_at if signing_key else None)
+    usage = effective_rights(document)
 
     context = RequestContext(
         actor_id=actor.recipient_id,
@@ -395,7 +399,8 @@ def _authorize(
             and document_service.sessions_used(session, document.document_id) >= document.maximum_sessions
         ),
         offline_requested=offline,
-        offline_allowed=document.offline_allowed,
+        offline_allowed=usage["OFFLINE"] == "ALLOW",
+        decrypt_right=usage["DECRYPT"],
         break_glass_approved=break_glass,
     )
     decision = evaluate_decryption(context, device_policy=policy.device_access_policy)

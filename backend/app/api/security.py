@@ -160,7 +160,7 @@ class LockdownRequest(BaseModel):
 def engage_lockdown(
     payload: LockdownRequest,
     session: Session = Depends(db),
-    commander: Recipient = Depends(readable("security.lockdown")),
+    commander: Recipient = Depends(permitted("security.lockdown")),
 ) -> dict[str, Any]:
     """Emergency lockdown.
 

@@ -334,7 +334,7 @@ class TestForensicChain:
             leaked_path=edited, original_filename="EDITED.pdf",
         )
         analysis = forensic_service.analyze(db, evidence=item)
-        assert analysis["outcome"] in ("DOCUMENT_MODIFIED", "PARTIALLY VERIFIED", "WATERMARK_NOT_RECOVERED")
+        assert analysis["outcome"] in ("DOCUMENT MODIFIED", "PARTIALLY VERIFIED", "WATERMARK NOT RECOVERED")
         assert analysis["outcome"] != "VERIFIED ASSOCIATION"
 
     def test_unregistered_watermark_is_not_attributed(self, db, leak, tmp_path):

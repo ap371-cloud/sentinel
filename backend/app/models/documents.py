@@ -37,6 +37,10 @@ class Document(Base):
     need_to_know_units: Mapped[str] = mapped_column(Text, default="[]")
     permitted_roles: Mapped[str] = mapped_column(Text, default="[]")
 
+    #: Per-document usage-right overrides ({"PRINT": "DENY", ...}), layered on
+    #: top of the classification defaults and the boolean columns below.
+    rights: Mapped[str] = mapped_column(Text, default="{}")
+
     # ---- document access policy -------------------------------------------
     download_allowed: Mapped[bool] = mapped_column(Boolean, default=True)
     print_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -60,6 +64,8 @@ class Document(Base):
     def policy(self) -> dict[str, object]:
         import json
 
+        from ..core.rights import policy_matrix
+
         return {
             "document_id": self.document_id,
             "classification": self.classification,
@@ -76,6 +82,7 @@ class Document(Base):
             "maximum_sessions": self.maximum_sessions,
             "mission_reference": self.mission_reference,
             "policy_version": self.policy_version,
+            **policy_matrix(self),
         }
 
 

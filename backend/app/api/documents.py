@@ -10,7 +10,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..core.config import PATHS, CLEARIFICATIONS, DocumentLifecycle
-from ..core.exceptions import ForgeError
+from ..core.exceptions import ForgeError, NotFound
+from ..core.rights import require_right
+from ..models.documents import Document
 from ..models.identity import Recipient
 from ..services import approval_service, document_service
 from .deps import db, permitted, readable
@@ -108,6 +110,10 @@ def lifecycle() -> dict[str, Any]:
 
 @router.get("/{document_id}")
 def get_document(document_id: str, session: Session = Depends(db), _: Recipient = Depends(readable("document.read"))) -> dict[str, Any]:
+    document = session.get(Document, document_id)
+    if document is None:
+        raise NotFound(f"No document {document_id}.")
+    require_right(document, "VIEW", operation="Viewing this document")
     return {"document": document_service.describe(session, document_id)}
 
 
@@ -121,7 +127,7 @@ def grant(
     document_id: str,
     payload: GrantRequest,
     session: Session = Depends(db),
-    admin: Recipient = Depends(readable("document.grant")),
+    admin: Recipient = Depends(permitted("document.grant")),
 ) -> dict[str, Any]:
     """Need-to-know is granted per document, separately from clearance."""
     return document_service.grant(

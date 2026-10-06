@@ -9,7 +9,7 @@ import numpy as np
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..core.config import PATHS
+from ..core.config import PATHS, ForensicOutcome
 from ..core.exceptions import NotFound
 from ..core.identifiers import case_id as make_case_id
 from ..crypto.hashing import canonical_bytes, file_digest_bundle, sha256_hex
@@ -160,7 +160,9 @@ def analyze(session: Session, *, evidence: EvidenceItem) -> dict[str, Any]:
 
     if not verdict.attributed or verdict.matched_session_id is None:
         links.append(_link("WATERMARK MATCH", "FAIL", "Recovered tag matches no registered decryption session."))
-        return _finish(session, evidence, verdict, links, None, None, "WATERMARK_NOT_RECOVERED")
+        return _finish(
+            session, evidence, verdict, links, None, None, ForensicOutcome.WATERMARK_NOT_RECOVERED
+        )
 
     links.append(
         _link(
@@ -173,7 +175,9 @@ def analyze(session: Session, *, evidence: EvidenceItem) -> dict[str, Any]:
     decryption_session = session.get(DecryptionSession, verdict.matched_session_id)
     if decryption_session is None:
         links.append(_link("DECRYPTION SESSION", "FAIL", "The referenced session record is absent."))
-        return _finish(session, evidence, verdict, links, None, None, "INSUFFICIENT_EVIDENCE")
+        return _finish(
+            session, evidence, verdict, links, None, None, ForensicOutcome.INSUFFICIENT_EVIDENCE
+        )
     links.append(
         _link(
             "DECRYPTION SESSION",
@@ -350,10 +354,16 @@ def _finish(
             event.version_number if event else case.suspected_version_number
         )
 
-    if outcome in ("VERIFIED ASSOCIATION", "DOCUMENT_MODIFIED", "SIGNATURE_INVALID"):
+    if outcome in (
+        ForensicOutcome.VERIFIED_ASSOCIATION,
+        ForensicOutcome.DOCUMENT_MODIFIED,
+        ForensicOutcome.SIGNATURE_INVALID,
+    ):
         incident_engine.raise_event(
             session,
-            "DOCUMENT_HASH_MISMATCH" if outcome == "DOCUMENT_MODIFIED" else "FORENSIC_ATTRIBUTION",
+            "DOCUMENT_HASH_MISMATCH"
+            if outcome == ForensicOutcome.DOCUMENT_MODIFIED
+            else "FORENSIC_ATTRIBUTION",
             title=f"Forensic analysis {outcome} for {evidence.evidence_id}",
             what_happened=(
                 f"{evidence.collected_by} analysed {evidence.original_filename} in case "
@@ -362,16 +372,16 @@ def _finish(
             why_it_matters=(
                 "A cryptographically verified association exists between this copy and an authorised "
                 "decryption session."
-                if outcome == "VERIFIED ASSOCIATION"
+                if outcome == ForensicOutcome.VERIFIED_ASSOCIATION
                 else "The submitted copy does not correspond to an unmodified distributed document."
             ),
             what_was_affected=evidence.matched_document_id or "UNKNOWN",
             recommended_action=(
                 "Brief the investigating officer and confirm the attribution with the recipient's unit."
-                if outcome == "VERIFIED ASSOCIATION"
+                if outcome == ForensicOutcome.VERIFIED_ASSOCIATION
                 else "Preserve this copy as separate evidence and review the modified content."
             ),
-            severity="HIGH" if outcome != "VERIFIED ASSOCIATION" else "MEDIUM",
+            severity="HIGH" if outcome != ForensicOutcome.VERIFIED_ASSOCIATION else "MEDIUM",
             subject_id=evidence.matched_recipient_id,
             document_id=evidence.matched_document_id,
         )

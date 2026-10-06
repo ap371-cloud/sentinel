@@ -98,7 +98,43 @@ def create_ops_schema() -> None:
     from ..models import Base  # noqa: F401  (registers every mapper)
 
     Base.metadata.create_all(ops_engine)
+    _ensure_added_columns(ops_engine)
     _install_append_only_guards(ops_engine)
+
+
+#: create_all only creates missing tables; it never alters an existing one, so
+#: a column added to a model has to be lifted onto old databases separately.
+#: (sqlite: / postgres: ADD COLUMN both accept a constant default.)
+ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("documents", "rights", "TEXT NOT NULL DEFAULT '{}'"),
+)
+
+
+def ensure_column(engine: Engine, table: str, column: str, ddl: str) -> None:
+    with engine.connect() as connection:
+        if engine.dialect.name == "postgresql":
+            present = (
+                connection.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.columns "
+                        "WHERE table_name = :table AND column_name = :column"
+                    ),
+                    {"table": table, "column": column},
+                ).first()
+                is not None
+            )
+        else:
+            present = any(
+                row[1] == column
+                for row in connection.execute(text(f'PRAGMA table_info("{table}")')).fetchall()
+            )
+        if not present:
+            connection.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {ddl}'))
+
+
+def _ensure_added_columns(engine: Engine) -> None:
+    for table, column, ddl in ADDED_COLUMNS:
+        ensure_column(engine, table, column, ddl)
 
 
 def create_node_schema(node_id: str) -> None:

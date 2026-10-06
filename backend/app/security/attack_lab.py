@@ -417,7 +417,13 @@ def document_modification(session: Session) -> dict[str, Any]:
         original_filename="attack_edited_copy.pdf",
     )
     analysis = forensic_service.analyze(session, evidence=item)
-    detected = analysis["outcome"] in ("DOCUMENT_MODIFIED", "PARTIALLY VERIFIED", "WATERMARK_NOT_RECOVERED")
+    from ..core.config import ForensicOutcome
+
+    detected = analysis["outcome"] in (
+        ForensicOutcome.DOCUMENT_MODIFIED,
+        ForensicOutcome.PARTIALLY_VERIFIED,
+        ForensicOutcome.WATERMARK_NOT_RECOVERED,
+    )
     return _result(
         "DOCUMENT_MODIFICATION",
         detected,

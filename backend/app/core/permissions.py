@@ -228,6 +228,7 @@ class RequestContext:
     session_budget_exhausted: bool = False
     offline_requested: bool = False
     offline_allowed: bool = True
+    decrypt_right: str = "ALLOW"
     break_glass_approved: bool = False
     now: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -293,6 +294,13 @@ def evaluate_decryption(
         role_ok,
         "ROLE_PERMITTED" if role_ok else "ROLE_NOT_PERMITTED",
         "The document's policy permits this kind of identity to receive it.",
+    )
+    right_ok = context.decrypt_right == "ALLOW"
+    record(
+        "decrypt_right",
+        right_ok,
+        "DECRYPT_RIGHT_ALLOWED" if right_ok else "DECRYPT_RIGHT_DENIED",
+        "The document's usage policy permits decryption of this document.",
     )
 
     device_ok, device_reason = _device_verdict(context, device_policy)

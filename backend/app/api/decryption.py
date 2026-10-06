@@ -11,8 +11,10 @@ from sqlalchemy.orm import Session
 
 from ..core.config import PATHS, DeviceTrust
 from ..core.exceptions import NotFound
+from ..core.rights import require_right
 from ..core.timeutil import utcnow
 from ..database import shared as shared_store
+from ..models.documents import Document
 from ..models.identity import Device, Recipient
 from ..security import incident_engine, revocation
 from ..services import audit_service, decryption_service, identity_service
@@ -110,6 +112,10 @@ def session_document(
     be used to reach another recipient's artefact.
     """
     record = decryption_service.describe_session(session, session_id)
+    document = session.get(Document, record["document_id"])
+    if document is None:
+        raise NotFound(f"No document {record['document_id']} behind this session.")
+    require_right(document, "DOWNLOAD", operation="Downloading this session's copy")
     stored = _locate_artefact(session_id)
     if stored is None:
         raise NotFound(f"No stored artefact for session {session_id}.")
@@ -281,7 +287,7 @@ def set_trust(
     device_id: str,
     payload: TrustRequest,
     session: Session = Depends(db),
-    officer: Recipient = Depends(readable("device.manage")),
+    officer: Recipient = Depends(permitted("device.manage")),
 ) -> dict[str, Any]:
     device = session.get(Device, device_id)
     if device is None:

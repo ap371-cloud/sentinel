@@ -252,7 +252,7 @@ def main() -> int:
             print(f"    {link['status']:<8} {link['link']:<26} {link['detail'][:74]}")
         check(
             "altered content detected rather than accepted",
-            edited["outcome"] in ("DOCUMENT_MODIFIED", "PARTIALLY VERIFIED", "WATERMARK_NOT_RECOVERED"),
+            edited["outcome"] in ("DOCUMENT MODIFIED", "PARTIALLY VERIFIED", "WATERMARK NOT RECOVERED"),
             edited["outcome"],
         )
 
@@ -270,7 +270,7 @@ def main() -> int:
         print(f"  outcome    : {stranger['outcome']}")
         check(
             "unmarked copy is not attributed to anyone",
-            stranger["outcome"] in ("WATERMARK_NOT_RECOVERED", "NO_MATCH_FOUND"),
+            stranger["outcome"] in ("WATERMARK NOT RECOVERED", "NO MATCH FOUND"),
             stranger["outcome"],
         )
 

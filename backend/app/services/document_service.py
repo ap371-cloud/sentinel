@@ -13,6 +13,7 @@ from ..core.config import PATHS, SETTINGS, Clearance, DocumentAccess, DocumentLi
 from ..core.identifiers import next_id
 from ..core.timeutil import has_expired, iso, utcnow
 from ..core.exceptions import ForgeError, NotFound
+from ..core import rights
 from ..crypto.hashing import file_digest_bundle
 from ..database import shared as shared_store
 from ..documents import encryption, pdf
@@ -75,6 +76,12 @@ def create_document(
         need_to_know_units=json.dumps(permitted_units or [unit]),
         permitted_roles=json.dumps(permitted_roles or [Role.RECIPIENT]),
     )
+    # The boolean columns record the classification's baseline decision, so a
+    # document created without an explicit policy still carries an explicit
+    # per-right verdict instead of the model's blanket defaults.
+    baseline = rights.classification_defaults(classification)
+    for right, column in rights.LEGACY_COLUMNS.items():
+        setattr(document, column, baseline[right] == rights.ALLOW)
     _apply_policy(document, policy or {})
     session.add(document)
     session.flush()
@@ -152,6 +159,11 @@ def _apply_policy(document: Document, policy: dict[str, Any]) -> None:
             setattr(document, name, bool(policy[name]))
     if policy.get("access_expiry_days"):
         document.access_expiry = _utcnow() + timedelta(days=int(policy["access_expiry_days"]))
+    if "rights" in policy:
+        overrides = policy["rights"]
+        if not isinstance(overrides, dict):
+            raise ForgeError("The rights policy must be an object of right-name to ALLOW/DENY.")
+        document.rights = json.dumps(rights.validate_overrides(overrides))
 
 
 def add_version(
