@@ -140,6 +140,44 @@ def grant(
     )
 
 
+@router.get("/{document_id}/grants")
+def list_grants(
+    document_id: str,
+    session: Session = Depends(db),
+    _: Recipient = Depends(readable("document.read")),
+) -> dict[str, Any]:
+    """Who currently holds need-to-know on this document, with each grant's
+    own expiry and revocation state."""
+    return {"grants": document_service.list_grants(session, document_id=document_id)}
+
+
+class PolicyEditRequest(BaseModel):
+    reason: str = Field(min_length=10, max_length=400)
+    approval_id: str | None = None
+    changes: dict[str, Any]
+
+
+@router.put("/{document_id}/policy")
+def update_policy(
+    document_id: str,
+    payload: PolicyEditRequest,
+    session: Session = Depends(db),
+    admin: Recipient = Depends(permitted("policy.modify")),
+) -> dict[str, Any]:
+    """Post-creation rights and policy edit: re-tighten after a leak or widen
+    for a mission change. High-classification documents also require an
+    approved two-person action. Every edit lands on the audit chain with its
+    before/after verdicts."""
+    return document_service.update_policy(
+        session,
+        document_id=document_id,
+        actor=admin,
+        policy=payload.changes,
+        reason=payload.reason,
+        approval_id=payload.approval_id,
+    )
+
+
 class ShareRequestBody(BaseModel):
     recipient_id: str
     justification: str = Field(min_length=10, max_length=1000)

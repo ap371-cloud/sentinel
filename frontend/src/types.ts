@@ -108,11 +108,115 @@ export type DocumentPolicy = {
   export_allowed: boolean;
   offline_allowed: boolean;
   watermark_required: boolean;
+  visible_watermark: boolean;
   second_approval_required: boolean;
+  allowed_locations: string[];
   access_expiry: string | null;
   maximum_sessions: number;
+  offline_max_hours: number;
   mission_reference: string | null;
   policy_version: string;
+  /** Per-right effective verdict: classification default < document booleans < explicit overrides. */
+  rights: Record<string, "ALLOW" | "DENY">;
+  right_sources: Record<string, string>;
+  rights_overrides: Record<string, "ALLOW" | "DENY">;
+  classification_defaults: Record<string, "ALLOW" | "DENY">;
+};
+
+/* ------------------------------------------------------- grants & sharing */
+
+export type GrantRow = {
+  grant_id: string;
+  recipient_id: string;
+  recipient_name: string | null;
+  recipient_role: string | null;
+  recipient_status: string | null;
+  granted_by: string;
+  granted_at: string;
+  expires_at: string | null;
+  revoked_at: string | null;
+  note: string | null;
+  status: string;
+};
+
+export type GrantsResponse = { grants: GrantRow[] };
+
+export type ShareRow = {
+  share_id: string;
+  document_id: string;
+  recipient_id: string;
+  requested_by: string;
+  status: string;
+  effective_status: string;
+  justification: string;
+  reason: string | null;
+  rights_in_effect: Record<string, string> | null;
+  expires_at: string | null;
+  approval_id: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  grant_id: string | null;
+  policy_version: string;
+  created_at: string;
+  revoked_at: string | null;
+  limitation: string;
+};
+
+export type SharesResponse = { shares: ShareRow[] };
+
+export type PolicyEditResult = {
+  document: DocumentDetail;
+  changes: Record<string, { from: unknown; to: unknown }>;
+  approval_id: string | null;
+  plain_explanation: string;
+};
+
+/* ------------------------------------------------------- revocation register */
+
+export type RevocationRow = {
+  revocation_id: string;
+  subject_type: string;
+  subject_id: string;
+  scope: string;
+  reason: string;
+  revoked_by: string;
+  revoked_at: string;
+  cascaded_to: string[];
+  history_preserved: boolean;
+  policy_version: string;
+};
+
+export type RevocationsResponse = {
+  revocations: RevocationRow[];
+  plain_explanation: string;
+};
+
+/* ------------------------------------------------------------------- risk */
+
+export type RiskRow = {
+  recipient_id: string;
+  risk_score: number;
+  risk_level: string;
+  factor_count: number;
+};
+
+export type RiskLeaderboardResponse = { recipients: RiskRow[]; maximum: number };
+
+export type RiskFactor = {
+  factor: string;
+  points: number;
+  evidence: string[];
+  detail: string;
+};
+
+export type RiskDetail = {
+  recipient_id: string;
+  risk_score: number;
+  maximum: number;
+  risk_level: string;
+  assessment_at: string;
+  contributing_factors: RiskFactor[];
+  plain_explanation: string;
 };
 
 export type DocumentVersionRow = {
@@ -243,6 +347,8 @@ export type Kpi = {
   open_investigations: number;
   verified_evidence: number;
   pending_approvals: number;
+  policy_denials: number;
+  revocations_recorded: number;
 };
 
 export type Posture = {
@@ -294,6 +400,22 @@ export type SecurityEventsResponse = {
   severity_levels: string[];
 };
 
+export type AuditDenial = {
+  audit_id: string;
+  actor_id: string;
+  actor_role: string;
+  document_id: string | null;
+  reason: string | null;
+  occurred_at: string;
+};
+
+export type RiskWatchRow = {
+  recipient_id: string;
+  risk_score: number;
+  risk_level: string;
+  top_factors: string[];
+};
+
 export type Dashboard = {
   system_security_status: string;
   kpis: Kpi;
@@ -301,6 +423,9 @@ export type Dashboard = {
   ledger_health: { headline: string; agreement: string; nodes: LedgerNode[]; quorum_size: number };
   live_security_events: SecurityEvent[];
   recent_decryptions: SessionRow[];
+  recent_policy_denials: AuditDenial[];
+  recent_revocations: RevocationRow[];
+  risk_watchlist: RiskWatchRow[];
   recent_investigations: {
     case_id: string;
     title: string;

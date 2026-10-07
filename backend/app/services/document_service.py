@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from ..core.config import PATHS, SETTINGS, Clearance, DocumentAccess, DocumentLifecycle, Role
 from ..core.identifiers import next_id
 from ..core.timeutil import has_expired, iso, utcnow
-from ..core.exceptions import ForgeError, NotFound
+from ..core.exceptions import ApprovalRequired, ForgeError, NotFound
 from ..core import rights
 from ..crypto.hashing import b64d, canonical_bytes, file_digest_bundle
 from ..database import shared as shared_store
@@ -153,11 +153,16 @@ def create_document(
 def _apply_policy(document: Document, policy: dict[str, Any]) -> None:
     fields = (
         "download_allowed", "print_allowed", "export_allowed", "offline_allowed",
-        "watermark_required", "visible_watermark", "second_approval_required", "maximum_sessions",
+        "watermark_required", "visible_watermark", "second_approval_required",
     )
     for name in fields:
         if name in policy:
             setattr(document, name, bool(policy[name]))
+    if "maximum_sessions" in policy:
+        sessions = int(policy["maximum_sessions"])
+        if not 0 <= sessions <= 10_000:
+            raise ForgeError("maximum_sessions must be between 0 (no cap) and 10000.")
+        document.maximum_sessions = sessions
     if policy.get("access_expiry_days"):
         document.access_expiry = _utcnow() + timedelta(days=int(policy["access_expiry_days"]))
     if "offline_max_hours" in policy:
@@ -174,6 +179,174 @@ def _apply_policy(document: Document, policy: dict[str, Any]) -> None:
         document.allowed_locations = json.dumps(
             locations.validate_zones(policy["allowed_locations"])
         )
+
+
+#: The settings a post-creation policy edit may touch. Anything else in the
+#: payload is rejected loudly rather than ignored, so a typo cannot silently
+#: do nothing.
+POLICY_EDIT_FIELDS = frozenset(
+    {
+        "download_allowed", "print_allowed", "export_allowed", "offline_allowed",
+        "watermark_required", "visible_watermark", "second_approval_required",
+        "maximum_sessions", "access_expiry_days", "offline_max_hours",
+        "rights", "allowed_locations",
+    }
+)
+
+#: Action name under which edits to SECRET / TOP_SECRET documents are routed
+#: through two-person control. It is one of the default high-risk actions, so
+#: an operator can take it off the list through the normal policy change if
+#: the organisation decides the gate is not wanted.
+HIGH_CLASSIFICATION_EDIT = "DOCUMENT_ACCESS_HIGH_CLASSIFICATION"
+_HIGH_CLASSES = ("SECRET", "TOP_SECRET")
+
+
+def _policy_state(document: Document) -> dict[str, Any]:
+    state: dict[str, Any] = dict(rights.effective_rights(document))
+    state.update(
+        {
+            "watermark_required": document.watermark_required,
+            "visible_watermark": document.visible_watermark,
+            "second_approval_required": document.second_approval_required,
+            "maximum_sessions": document.maximum_sessions,
+            "offline_max_hours": document.offline_max_hours,
+            "allowed_locations": json.loads(document.allowed_locations or "[]"),
+            "access_expiry": (
+                document.access_expiry.isoformat(timespec="seconds")
+                if document.access_expiry
+                else None
+            ),
+        }
+    )
+    return state
+
+
+def update_policy(
+    session: Session,
+    *,
+    document_id: str,
+    actor: Recipient,
+    policy: dict[str, Any],
+    reason: str,
+    approval_id: str | None = None,
+) -> dict[str, Any]:
+    """Edits a live document's rights and policy.
+
+    Classification defaults are decided at upload time, but they are not a
+    ceiling: a document administrator must be able to re-tighten a document
+    after a leak or widen it when a mission changes. Every edit is written to
+    the audit chain with the previous and the new per-right verdicts, and an
+    edit to a high-classification document only lands with a second identity's
+    approval.
+    """
+    document = _require(session, document_id)
+    if document.status == DocumentAccess.REVOKED:
+        raise ForgeError("A revoked document's policy cannot be edited.")
+    if len(reason.strip()) < 10:
+        raise ForgeError("A written reason of at least 10 characters is required for a policy edit.")
+    if not policy:
+        raise ForgeError("No policy changes were supplied.")
+    unknown = set(policy) - POLICY_EDIT_FIELDS
+    if unknown:
+        raise ForgeError(
+            f"Unknown policy settings: {', '.join(sorted(unknown))}.",
+            detail=(
+                f"Unknown settings: {', '.join(sorted(unknown))}. "
+                f"Editable settings: {', '.join(sorted(POLICY_EDIT_FIELDS))}."
+            ),
+        )
+
+    high_class = document.classification in _HIGH_CLASSES
+    if high_class and approval_service.requires_two_person(session, HIGH_CLASSIFICATION_EDIT):
+        if not approval_id:
+            raise ApprovalRequired(
+                f"Editing the policy of a {document.classification} document is a two-person action.",
+                detail=(
+                    f"Raise an {HIGH_CLASSIFICATION_EDIT} approval, have a second identity approve it, "
+                    "then retry with the approval_id."
+                ),
+            )
+    if approval_id:
+        approval_service.consume(
+            session,
+            approval_id=approval_id,
+            acting_role=actor.role,
+            expected_action=HIGH_CLASSIFICATION_EDIT,
+        )
+
+    before = _policy_state(document)
+    _apply_policy(document, policy)
+    after = _policy_state(document)
+    changes = {
+        key: {"from": before[key], "to": after[key]}
+        for key in sorted(after)
+        if before.get(key) != after.get(key)
+    }
+    if not changes:
+        raise ForgeError("The supplied policy makes no effective change.")
+
+    audit_service.record(
+        session,
+        actor_id=actor.recipient_id,
+        action="DOCUMENT_PERMISSION_CHANGED",
+        target_type="DOCUMENT",
+        target_id=document_id,
+        document_id=document_id,
+        policy_version=approval_service.active_policy(session).policy_version,
+        reason=reason,
+        severity="HIGH" if high_class else None,
+        detail={
+            "changes": changes,
+            "reason": reason,
+            "classification": document.classification,
+            "approval_id": approval_id,
+            "rights_verdicts_before": {right: before[right] for right in rights.RIGHTS},
+            "rights_verdicts_after": {right: after[right] for right in rights.RIGHTS},
+        },
+    )
+    return {
+        "document": describe(session, document_id),
+        "changes": changes,
+        "approval_id": approval_id,
+        "plain_explanation": (
+            "The document's usage policy was edited. The previous and the new verdict for every "
+            "right are recorded on the audit chain together with the reason."
+        ),
+    }
+
+
+def list_grants(session: Session, *, document_id: str) -> list[dict[str, Any]]:
+    _require(session, document_id)
+    out: list[dict[str, Any]] = []
+    rows = session.execute(
+        select(RecipientGrant)
+        .where(RecipientGrant.document_id == document_id)
+        .order_by(RecipientGrant.granted_at.desc())
+    ).scalars()
+    for row in rows:
+        recipient = session.get(Recipient, row.recipient_id)
+        if row.revoked_at is not None:
+            status = "REVOKED"
+        elif has_expired(row.expires_at):
+            status = "EXPIRED"
+        else:
+            status = "ACTIVE"
+        out.append(
+            {
+                "grant_id": row.grant_id,
+                "recipient_id": row.recipient_id,
+                "recipient_name": recipient.display_name if recipient else None,
+                "recipient_role": recipient.role if recipient else None,
+                "recipient_status": recipient.status if recipient else None,
+                "granted_by": row.granted_by,
+                "granted_at": row.granted_at.isoformat(timespec="seconds"),
+                "expires_at": row.expires_at.isoformat(timespec="seconds") if row.expires_at else None,
+                "revoked_at": row.revoked_at.isoformat(timespec="seconds") if row.revoked_at else None,
+                "note": row.note,
+                "status": status,
+            }
+        )
+    return out
 
 
 def add_version(

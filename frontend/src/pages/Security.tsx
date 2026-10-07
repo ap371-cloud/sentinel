@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import {
   api, endpoints,
-  type IncidentRow, type SecurityEvent, type SecurityEventsResponse,
+  type IncidentRow, type RiskDetail, type RiskLeaderboardResponse,
+  type SecurityEvent, type SecurityEventsResponse,
 } from "../api";
 import {
   Badge, DataTable, Drawer, EmptyState, ErrorNotice, Field, FilterChips, LoadingState,
@@ -419,5 +420,135 @@ function RaiseIncident({ event, onClose, onDone }: {
       </div>
       {error ? <ErrorNotice error={error} /> : null}
     </Modal>
+  );
+}
+
+/* ============================================================= risk console */
+
+export function RiskConsole() {
+  const list = useAsync<RiskLeaderboardResponse>(
+    () => api.get<RiskLeaderboardResponse>(`${endpoints.risk}?limit=500`), [],
+  );
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const rows = list.data?.recipients ?? [];
+  const maximum = list.data?.maximum ?? 100;
+  const elevated = rows.filter((r) => r.risk_level === "HIGH" || r.risk_level === "CRITICAL").length;
+
+  if (list.loading && !list.data) return <LoadingState label="Scoring identities" detail="GET /risk" />;
+  if (list.error) {
+    const st = (list.error as { status?: number }).status;
+    return st === 401 || st === 403
+      ? <Unauthorized error={list.error} onLogin={() => window.location.reload()} />
+      : <ErrorNotice error={list.error} onRetry={list.reload} />;
+  }
+
+  return (
+    <div className="stack">
+      <PageHead
+        title="Identity Risk"
+        sub="Rule-based and explainable: every point names the recorded factor behind it. The score is informational — it never makes an authorisation decision on its own."
+        actions={
+          <>
+            <Badge tone="info">{rows.length} IDENTITIES SCORED</Badge>
+            <button className="btn" onClick={list.reload} disabled={list.loading}>
+              {list.loading ? "Refreshing…" : "↻ Refresh"}
+            </button>
+          </>
+        }
+      />
+
+      <div className="grid g4">
+        <Metric label="Identities scored" value={rows.length} tone="info" />
+        <Metric label="High / critical" value={elevated} tone={elevated ? "crit" : "ok"} sub="risk level HIGH or CRITICAL" />
+        <Metric
+          label="Top score" value={rows.length ? rows[0].risk_score : 0}
+          tone={rows[0]?.risk_level === "CRITICAL" ? "crit" : "info"}
+          sub={rows[0] ? `held by ${rows[0].recipient_id}` : "no identity scored"}
+        />
+        <Metric label="Scale" small value={maximum} tone="idle" sub="maximum possible score" />
+      </div>
+
+      <Panel flush>
+        <DataTable
+          rows={rows}
+          onRow={(r) => setOpenId(r.recipient_id)}
+          empty={
+            <EmptyState icon="◍" title="No identities scored" sub="The backend returned an empty risk leaderboard." />
+          }
+          columns={[
+            { key: "r", head: "Recipient", render: (r) => <IdentBadge id={r.recipient_id} kind="recipient" /> },
+            { key: "l", head: "Level", render: (r) => <RiskLevelBadge level={r.risk_level} /> },
+            { key: "s", head: "Score", num: true, render: (r) => (
+              <span className="flex gap-sm" style={{ justifyContent: "flex-end" }}>
+                <b style={{ color: riskColor(r.risk_level) }}>{r.risk_score}</b>
+                <span className="tiny dim">/ {maximum}</span>
+              </span>
+            ) },
+            { key: "f", head: "Factors", num: true, render: (r) => r.factor_count },
+            { key: "d", head: "", render: () => <span className="tiny dim">drill down</span> },
+          ]}
+        />
+      </Panel>
+
+      {openId ? <RiskDrawer id={openId} onClose={() => setOpenId(null)} /> : null}
+    </div>
+  );
+}
+
+function RiskLevelBadge({ level }: { level: string }) {
+  const tone = level === "CRITICAL" ? "crit" : level === "HIGH" ? "high" : level === "MEDIUM" ? "warn" : level === "LOW" ? "info" : "ok";
+  return <Badge tone={tone}>{level}</Badge>;
+}
+
+function riskColor(level: string): string {
+  if (level === "CRITICAL") return "var(--crit)";
+  if (level === "HIGH") return "var(--high)";
+  if (level === "MEDIUM") return "var(--warn)";
+  if (level === "LOW") return "var(--info)";
+  return "var(--ok)";
+}
+
+function RiskDrawer({ id, onClose }: { id: string; onClose: () => void }) {
+  const detail = useAsync<RiskDetail>(() => api.get<RiskDetail>(endpoints.riskDetail(id)), [id]);
+  const d = detail.data;
+
+  return (
+    <Drawer title="Risk assessment" sub={<IdentBadge id={id} kind="recipient" />} onClose={onClose}>
+      {detail.loading && !d ? <LoadingState label="Computing risk drill-down" detail="GET /risk/{id}" /> : null}
+      {detail.error ? <ErrorNotice error={detail.error} onRetry={detail.reload} /> : null}
+      {d ? (
+        <div className="stack">
+          <div className="grid g3">
+            <Metric label="Score" value={d.risk_score} tone={d.risk_level === "CRITICAL" ? "crit" : "info"} sub={`out of ${d.maximum}`} />
+            <Metric label="Level" small value={<RiskLevelBadge level={d.risk_level} />} tone="idle" />
+            <Metric label="Assessed at" small value={d.assessment_at?.slice(0, 19).replace("T", " ")} tone="idle" />
+          </div>
+
+          <Panel title="Contributing factors" flush>
+            {d.contributing_factors.length ? (
+              <div className="pipeline">
+                {d.contributing_factors.map((f) => (
+                  <div key={f.factor} className="vstep partial">
+                    <span className="mark">+{f.points}</span>
+                    <div>
+                      <div className="nm">{f.factor.replace(/_/g, " ")}</div>
+                      {f.evidence?.length ? <div className="dt">{f.evidence.join(" · ")}</div> : null}
+                      {f.detail ? <div className="dt dim">{f.detail}</div> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState icon="✓" title="No contributing factors" sub="This identity currently scores zero risk points." />
+            )}
+          </Panel>
+
+          <Notice tone="info" title="How the score works">
+            {d.plain_explanation}
+          </Notice>
+        </div>
+      ) : null}
+    </Drawer>
   );
 }

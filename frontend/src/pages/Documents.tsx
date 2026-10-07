@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  api, endpoints,
-  type DecryptionResult, type DeviceRow, type DocumentDetail, type DocumentRow,
+  api, ApiError, endpoints,
+  type DecryptionResult, type DeviceRow, type DocumentDetail, type DocumentPolicy,
+  type DocumentRow, type GrantRow, type GrantsResponse, type PolicyEditResult,
+  type RecipientsResponse, type ShareRow, type SharesResponse,
 } from "../api";
 import {
   Badge, DataTable, Drawer, EmptyState, ErrorNotice, Field, FilterChips, Hash,
@@ -9,10 +11,14 @@ import {
   Unauthorized, useAsync, useToast,
 } from "../components/ui";
 import { IdentBadge } from "../components/layout";
+import {
+  ENFORCEMENT_LIMITATION, ENFORCEMENT_TONE, RIGHT_HONESTY,
+  type EnforcementLevel,
+} from "../components/enforcement";
 
 type Filter = "all" | "active" | "sealed" | "suspended" | "revoked";
 
-export function Documents() {
+export function Documents({ permissions }: { permissions: string[] }) {
   const docs = useAsync<{ documents: DocumentRow[] }>(() => api.get(endpoints.documents), []);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -121,7 +127,7 @@ export function Documents() {
         />
       </Panel>
 
-      {openId ? <DocumentDrawer id={openId} onClose={() => setOpenId(null)} onDecrypt={(d) => { setOpenId(null); setDecryptFor(d); }} /> : null}
+      {openId ? <DocumentDrawer id={openId} onClose={() => setOpenId(null)} onDecrypt={(d) => { setOpenId(null); setDecryptFor(d); }} permissions={permissions} /> : null}
       {decryptFor ? <DecryptModal document={decryptFor} onClose={() => setDecryptFor(null)} onDone={() => docs.reload()} /> : null}
     </div>
   );
@@ -129,14 +135,19 @@ export function Documents() {
 
 /* ------------------------------------------------------------- drawer */
 
-function DocumentDrawer({ id, onClose, onDecrypt }: {
-  id: string; onClose: () => void; onDecrypt: (d: DocumentRow) => void;
+function DocumentDrawer({ id, onClose, onDecrypt, permissions }: {
+  id: string; onClose: () => void; onDecrypt: (d: DocumentRow) => void; permissions: string[];
 }) {
   const toast = useToast();
   const detail = useAsync<{ document: DocumentDetail }>(
     () => api.get<{ document: DocumentDetail }>(endpoints.document(id)), [id],
   );
   const [busy, setBusy] = useState<string | null>(null);
+  const [editingPolicy, setEditingPolicy] = useState(false);
+
+  const canEditPolicy = permissions.includes("policy.modify");
+  const canGrant = permissions.includes("document.grant");
+  const canRevoke = permissions.includes("recipient.revoke");
 
   const act = async (label: string, path: string, body?: unknown) => {
     setBusy(label);
@@ -186,10 +197,21 @@ function DocumentDrawer({ id, onClose, onDecrypt }: {
             <div className="tiny muted" style={{ marginTop: 7 }}>{d.crypto.content_note}</div>
           </Panel>
 
-          <Panel title="Live policy" actions={<Badge tone="info">v{d.versions.find((v) => v.is_current)?.version_number ?? d.current_version}</Badge>}>
-            <pre className="mono" style={{ margin: 0, whiteSpace: "pre-wrap", color: "var(--tx-2)" }}>
-              {JSON.stringify(d.policy, null, 2)}
-            </pre>
+          <Panel
+            title="Usage policy"
+            actions={
+              <span className="pill-row">
+                <Badge tone="info">{d.policy.policy_version}</Badge>
+                {canEditPolicy ? (
+                  <button className="btn sm" onClick={() => setEditingPolicy(true)} disabled={d.status === "REVOKED"}>
+                    Edit policy
+                  </button>
+                ) : null}
+              </span>
+            }
+            flush
+          >
+            <RightsMatrix policy={d.policy} />
           </Panel>
 
           <Panel title="Versions" flush>
@@ -227,6 +249,8 @@ function DocumentDrawer({ id, onClose, onDecrypt }: {
             />
           </Panel>
 
+          <GrantsPanel documentId={d.document_id} canGrant={canGrant} canRevoke={canRevoke} />
+
           {d.lifecycle_history.length ? (
             <Panel title="Lifecycle transitions" flush>
               <Timeline
@@ -258,6 +282,16 @@ function DocumentDrawer({ id, onClose, onDecrypt }: {
           </Panel>
         </div>
       ) : null}
+
+      {editingPolicy && d ? (
+        <PolicyEditor
+          documentId={d.document_id}
+          title={d.title}
+          policy={d.policy}
+          onClose={() => setEditingPolicy(false)}
+          onSaved={() => { setEditingPolicy(false); detail.reload(); }}
+        />
+      ) : null}
     </Drawer>
   );
 }
@@ -268,6 +302,475 @@ function KV({ k, v }: { k: string; v: React.ReactNode }) {
       <div className="tiny dim" style={{ letterSpacing: 1.1, textTransform: "uppercase" }}>{k}</div>
       <div style={{ marginTop: 3 }}>{v}</div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------- rights matrix */
+
+function RightsMatrix({ policy }: { policy: DocumentPolicy }) {
+  return (
+    <>
+      <DataTable
+        rows={RIGHT_HONESTY}
+        columns={[
+          { key: "r", head: "Right", render: (h) => (
+            <span className="stack" style={{ gap: 1 }}>
+              <span className="mono">{h.right}</span>
+              <span className="tiny dim" style={{ maxWidth: 300 }}>{h.note}</span>
+            </span>
+          ) },
+          { key: "v", head: "Effective", render: (h) => <VerdictBadge verdict={(policy.rights ?? {})[h.right] ?? "DENY"} /> },
+          { key: "s", head: "Decided by", render: (h) => <Badge tone="idle">{sourceLabel((policy.right_sources ?? {})[h.right])}</Badge> },
+          { key: "e", head: "Enforcement on this stack", render: (h) => <EnforcementBadge level={h.level} /> },
+        ]}
+      />
+      <div className="panel-body" style={{ borderTop: "1px solid var(--hair)" }}>
+        <div className="tiny muted" style={{ lineHeight: 1.6 }}>{ENFORCEMENT_LIMITATION}</div>
+      </div>
+    </>
+  );
+}
+
+function VerdictBadge({ verdict }: { verdict: string }) {
+  return verdict === "ALLOW"
+    ? <Badge tone="ok">ALLOW</Badge>
+    : <Badge tone="crit">DENY</Badge>;
+}
+
+function EnforcementBadge({ level }: { level: EnforcementLevel }) {
+  return <Badge tone={ENFORCEMENT_TONE[level]}>{level}</Badge>;
+}
+
+function sourceLabel(source?: string): string {
+  if (!source) return "—";
+  return source.replace(/_/g, " ");
+}
+
+/* ----------------------------------------------------------- grants & shares */
+
+function GrantsPanel({ documentId, canGrant, canRevoke }: {
+  documentId: string; canGrant: boolean; canRevoke: boolean;
+}) {
+  const toast = useToast();
+  const grants = useAsync<GrantsResponse>(
+    () => api.get<GrantsResponse>(endpoints.documentGrants(documentId)), [documentId],
+  );
+  const shares = useAsync<SharesResponse>(
+    () => api.get<SharesResponse>(endpoints.documentShares(documentId)), [documentId],
+  );
+  const [granting, setGranting] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [revoking, setRevoking] = useState<GrantRow | null>(null);
+
+  const refresh = () => { grants.reload(); shares.reload(); };
+
+  return (
+    <>
+      <Panel
+        title="Need-to-know grants"
+        actions={
+          canGrant ? (
+            <span className="pill-row">
+              <button className="btn sm" onClick={() => setGranting(true)}>+ Grant</button>
+              <button className="btn sm" onClick={() => setSharing(true)}>⇄ Request share</button>
+            </span>
+          ) : <Badge tone="idle">READ-ONLY</Badge>
+        }
+        flush
+      >
+        {grants.error ? <ErrorNotice error={grants.error} onRetry={grants.reload} /> : null}
+        {grants.loading && !grants.data ? <LoadingState label="Loading grants" /> : null}
+        <DataTable
+          rows={grants.data?.grants ?? []}
+          empty={
+            <EmptyState
+              icon="⇄" title="Nobody holds need-to-know yet"
+              sub={canGrant ? "Grant a recipient so they can be authorised for decryption." : "A document administrator decides need-to-know for this document."}
+            />
+          }
+          columns={[
+            { key: "r", head: "Recipient", render: (g) => (
+              <span className="stack" style={{ gap: 1 }}>
+                <IdentBadge id={g.recipient_id} kind="recipient" />
+                <span className="tiny dim">{g.recipient_name ?? ""}{g.recipient_role ? ` · ${g.recipient_role}` : ""}</span>
+              </span>
+            ) },
+            { key: "st", head: "Grant", render: (g) => <StatusBadge status={g.status} /> },
+            { key: "x", head: "Expires", render: (g) => (
+              <span className="tiny dim">{g.expires_at?.slice(0, 19).replace("T", " ") ?? "never"}</span>
+            ) },
+            { key: "by", head: "Granted by", render: (g) => <span className="mono">{g.granted_by}</span> },
+            { key: "at", head: "At (UTC)", render: (g) => <span className="tiny dim">{g.granted_at.slice(0, 19).replace("T", " ")}</span> },
+            { key: "n", head: "Note", render: (g) => <span className="tiny muted">{g.note ?? "—"}</span> },
+            { key: "a", head: "", render: (g) => (
+              canRevoke && g.status === "ACTIVE"
+                ? <button className="btn sm danger" onClick={() => setRevoking(g)}>Revoke</button>
+                : null
+            ) },
+          ]}
+        />
+      </Panel>
+
+      <Panel title="Share register" flush>
+        {shares.error ? <ErrorNotice error={shares.error} onRetry={shares.reload} /> : null}
+        {shares.loading && !shares.data ? <LoadingState label="Loading share register" /> : null}
+        <DataTable
+          rows={shares.data?.shares ?? []}
+          empty={<EmptyState icon="⇄" title="No shares requested" sub="External sharing requests appear here, including the ones routed to two-person approval." />}
+          columns={[
+            { key: "r", head: "Recipient", render: (s) => <IdentBadge id={s.recipient_id} kind="recipient" /> },
+            { key: "st", head: "Status", render: (s) => <StatusBadge status={s.effective_status} /> },
+            { key: "by", head: "Requested by", render: (s) => <span className="mono">{s.requested_by}</span> },
+            { key: "at", head: "At (UTC)", render: (s) => <span className="tiny dim">{s.created_at.slice(0, 19).replace("T", " ")}</span> },
+            { key: "x", head: "Expires", render: (s) => (
+              <span className="tiny dim">{s.expires_at?.slice(0, 19).replace("T", " ") ?? "never"}</span>
+            ) },
+            { key: "j", head: "Justification", render: (s) => <span className="tiny muted" style={{ maxWidth: 260, display: "block" }}>{s.justification}</span> },
+          ]}
+        />
+      </Panel>
+
+      {granting ? (
+        <GrantModal documentId={documentId} onClose={() => setGranting(false)} onDone={() => { refresh(); toast.success("Grant recorded", "Need-to-know was added for the recipient."); }} />
+      ) : null}
+      {sharing ? (
+        <ShareModal documentId={documentId} onClose={() => setSharing(false)} onDone={() => { refresh(); toast.success("Share request raised", "The register now records it; approval may still be required."); }} />
+      ) : null}
+      {revoking ? (
+        <RevokeModal grant={revoking} documentId={documentId} onClose={() => setRevoking(null)} onDone={() => { refresh(); toast.success("Access revoked", `${revoking.recipient_id} can no longer be authorised on this document.`); }} />
+      ) : null}
+    </>
+  );
+}
+
+/* ------------------------------------------------------ grant / share modals */
+
+function RecipientPicker({ value, onChange, exclude }: {
+  value: string; onChange: (id: string) => void; exclude: string[];
+}) {
+  const directory = useAsync<RecipientsResponse>(() => api.get<RecipientsResponse>(endpoints.recipients), []);
+  const options = (directory.data?.identities ?? [])
+    .filter((i) => i.status === "ACTIVE" && !exclude.includes(i.recipient_id));
+  if (!directory.data && directory.loading) return <LoadingState label="Loading the recipient directory" />;
+  return (
+    <select className="inp" value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Choose an active recipient…</option>
+      {options.map((i) => (
+        <option key={i.recipient_id} value={i.recipient_id}>
+          {i.recipient_id} — {i.display_name} ({i.role}, {i.clearance_label})
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function GrantModal({ documentId, onClose, onDone }: {
+  documentId: string; onClose: () => void; onDone: () => void;
+}) {
+  const [recipientId, setRecipientId] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(endpoints.documentGrants(documentId), { recipient_id: recipientId, note: note.trim() || undefined });
+      onDone();
+      onClose();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Grant need-to-know"
+      sub="Adds the recipient to the document's authorisation set."
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={busy || !recipientId} onClick={submit}>
+            {busy ? "Granting…" : "Grant access"}
+          </button>
+        </>
+      }
+    >
+      <Notice tone="info">
+        Clearance and need-to-know are checked separately. The grant is recorded in the audit trail.
+      </Notice>
+      <div className="mt">
+        <Field label="Recipient">
+          <RecipientPicker value={recipientId} onChange={setRecipientId} exclude={[]} />
+        </Field>
+        <Field label="Note (optional)">
+          <input className="inp" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why this recipient needs access" />
+        </Field>
+      </div>
+      {error ? <ErrorNotice error={error} /> : null}
+    </Modal>
+  );
+}
+
+function ShareModal({ documentId, onClose, onDone }: {
+  documentId: string; onClose: () => void; onDone: () => void;
+}) {
+  const [recipientId, setRecipientId] = useState("");
+  const [justification, setJustification] = useState("");
+  const [expiresIn, setExpiresIn] = useState("0");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(endpoints.documentShares(documentId), {
+        recipient_id: recipientId,
+        justification: justification.trim(),
+        expires_in_days: Number(expiresIn),
+      });
+      onDone();
+      onClose();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Request external share"
+      sub="Dual-controlled sharing: the request lands on the share register and routes to two-person approval when the policy requires it."
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={busy || !recipientId || justification.trim().length < 10} onClick={submit}>
+            {busy ? "Raising…" : "Request share"}
+          </button>
+        </>
+      }
+    >
+      <div className="mt">
+        <Field label="Recipient">
+          <RecipientPicker value={recipientId} onChange={setRecipientId} exclude={[]} />
+        </Field>
+        <Field label="Justification (min 10 chars)" hint="recorded verbatim on the register">
+          <textarea className="inp" rows={3} value={justification} onChange={(e) => setJustification(e.target.value)} />
+        </Field>
+        <Field label="Expires in days (0 = no end date)">
+          <input className="inp" type="number" min={0} max={365} value={expiresIn} onChange={(e) => setExpiresIn(e.target.value)} />
+        </Field>
+      </div>
+      {error ? <ErrorNotice error={error} /> : null}
+    </Modal>
+  );
+}
+
+function RevokeModal({ documentId, grant, onClose, onDone }: {
+  documentId: string; grant: GrantRow; onClose: () => void; onDone: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(endpoints.documentAccessRevoke(documentId), {
+        recipient_id: grant.recipient_id,
+        reason: reason.trim(),
+      });
+      onDone();
+      onClose();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Revoke document access"
+      sub={<IdentBadge id={grant.recipient_id} kind="recipient" />}
+      onClose={onClose}
+      danger
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn danger" disabled={busy || reason.trim().length < 5} onClick={submit}>
+            {busy ? "Revoking…" : "Revoke access"}
+          </button>
+        </>
+      }
+    >
+      <Notice tone="warn" title="New authorisation is refused immediately">
+        Records of what already happened stay untouched; the reason is written to the audit trail.
+      </Notice>
+      <div className="mt">
+        <Field label="Reason (min 5 chars)">
+          <input className="inp" value={reason} onChange={(e) => setReason(e.target.value)} />
+        </Field>
+      </div>
+      {error ? <ErrorNotice error={error} /> : null}
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------ policy editor */
+
+const BOOL_FIELDS = [
+  ["download_allowed", "Download"],
+  ["print_allowed", "Print"],
+  ["export_allowed", "Export"],
+  ["offline_allowed", "Offline"],
+  ["watermark_required", "Watermark required"],
+  ["visible_watermark", "Visible watermark"],
+  ["second_approval_required", "Second approval"],
+] as const;
+
+const OVERRIDABLE_RIGHTS = [
+  "EDIT", "PRINT", "COPY", "DOWNLOAD", "EXPORT", "FORWARD", "SHARE", "SCREENSHOT", "OFFLINE",
+];
+
+function PolicyEditor({ documentId, title, policy, onClose, onSaved }: {
+  documentId: string; title: string; policy: DocumentPolicy; onClose: () => void; onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [flags, setFlags] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(BOOL_FIELDS.map(([key]) => [key, policy[key]])));
+  const [sessions, setSessions] = useState(String(policy.maximum_sessions));
+  const [offlineHours, setOfflineHours] = useState(String(policy.offline_max_hours));
+  const [expiryDays, setExpiryDays] = useState("");
+  const [overrides, setOverrides] = useState<Record<string, "ALLOW" | "DENY">>({});
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+
+  const highClass = policy.classification === "SECRET" || policy.classification === "TOP_SECRET";
+
+  const submit = async () => {
+    if (reason.trim().length < 10) {
+      setError(new Error("A written reason of at least 10 characters is required for a policy edit."));
+      return;
+    }
+    const changes: Record<string, unknown> = {};
+    for (const [key, value] of BOOL_FIELDS) {
+      if (flags[key] !== policy[key]) changes[key] = flags[key];
+    }
+    const sessionsValue = Number(sessions);
+    const hoursValue = Number(offlineHours);
+    if (sessionsValue >= 0 && sessionsValue !== policy.maximum_sessions) changes.maximum_sessions = sessionsValue;
+    if (hoursValue >= 0 && hoursValue !== policy.offline_max_hours) changes.offline_max_hours = hoursValue;
+    const days = Number(expiryDays);
+    if (days > 0) changes.access_expiry_days = days;
+    if (Object.keys(overrides).length) changes.rights = overrides;
+
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.put<PolicyEditResult>(endpoints.documentPolicy(documentId), {
+        reason: reason.trim(),
+        changes,
+      });
+      toast.success("Policy updated", `${Object.keys(result.changes).length} setting(s) recorded on the audit chain.`);
+      onSaved();
+    } catch (e) {
+      setError(e);
+      if (e instanceof ApiError) {
+        toast.failure(
+          e.status === 428 ? "Two-person approval required" : "Policy edit refused",
+          e.detail || e.message,
+        );
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Edit usage policy"
+      sub={title}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={busy} onClick={submit}>
+            {busy ? "Applying…" : "Apply changes"}
+          </button>
+        </>
+      }
+    >
+      <div className="stack">
+        <Notice tone="warn" title="Every change is written to the audit chain with before/after verdicts">
+          Leave a field untouched to keep the current value. Edits to SECRET / TOP_SECRET documents need a
+          second identity's approval, so the first attempt may be refused with an approval reference.
+        </Notice>
+
+        <div className="grid g2">
+          {BOOL_FIELDS.map(([key, label]) => (
+            <Field key={key} label={label}>
+              <select className="inp" value={flags[key] ? "allow" : "deny"} onChange={(e) => setFlags((f) => ({ ...f, [key]: e.target.value === "allow" }))}>
+                <option value="allow">Allow</option>
+                <option value="deny">Deny</option>
+              </select>
+            </Field>
+          ))}
+        </div>
+
+        <div className="grid g3">
+          <Field label="Maximum sessions (0 = no cap)">
+            <input className="inp" type="number" min={0} max={10000} value={sessions} onChange={(e) => setSessions(e.target.value)} />
+          </Field>
+          <Field label="Offline max hours (0 = no cap)">
+            <input className="inp" type="number" min={0} max={8760} value={offlineHours} onChange={(e) => setOfflineHours(e.target.value)} />
+          </Field>
+          <Field label="Reset expiry (days from now)">
+            <input className="inp" type="number" min={1} max={3650} value={expiryDays} onChange={(e) => setExpiryDays(e.target.value)} placeholder="keep current" />
+          </Field>
+        </div>
+
+        <div>
+          <div className="tiny dim" style={{ letterSpacing: 1.1, textTransform: "uppercase", marginBottom: 5 }}>
+            Per-right overrides {highClass ? <Badge tone="crit">HIGH CLASS</Badge> : null}
+          </div>
+          <div className="grid g3">
+            {OVERRIDABLE_RIGHTS.map((right) => (
+              <Field key={right} label={`${right} · now ${(policy.rights ?? {})[right] ?? "DENY"}`}>
+                <select className="inp" value={overrides[right] ?? "keep"} onChange={(e) => {
+                  const value = e.target.value as "keep" | "ALLOW" | "DENY";
+                  setOverrides((prev) => {
+                    const next = { ...prev };
+                    if (value === "keep") delete next[right];
+                    else next[right] = value;
+                    return next;
+                  });
+                }}>
+                  <option value="keep">Keep</option>
+                  <option value="ALLOW">Allow</option>
+                  <option value="DENY">Deny</option>
+                </select>
+              </Field>
+            ))}
+          </div>
+        </div>
+
+        <Field label="Reason (min 10 chars)" hint="read verbatim from the audit trail">
+          <textarea className="inp" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+        </Field>
+      </div>
+      {error ? <ErrorNotice error={error} /> : null}
+    </Modal>
   );
 }
 

@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   api, endpoints,
-  type Dashboard, type ForensicAnalysis, type Kpi, type LedgerVerification, type LockdownState,
+  type AuditDenial, type Dashboard, type ForensicAnalysis, type Kpi, type LedgerVerification,
+  type LockdownState, type RevocationRow, type RiskWatchRow,
 } from "../api";
 import {
   Badge, CopyButton, DataTable, Dot, EmptyState, ErrorNotice, Hash, LoadingState, Metric,
   Notice, Panel, PageHead, Pipeline, StatusBadge, Timeline, Unauthorized,
   VerificationStep, useAsync, useToast, type StepState,
 } from "../components/ui";
+import { IdentBadge } from "../components/layout";
 
 export function CommandCenter({ permissions, onNavigate, onLockdownChanged }: {
   permissions: string[];
@@ -111,6 +113,8 @@ export function CommandCenter({ permissions, onNavigate, onLockdownChanged }: {
         <RecentDecryptions dashboard={d} onNavigate={onNavigate} />
         <LedgerAgreement mayVerify={permissions.includes("ledger.verify")} />
       </div>
+
+      <OperationalFeed dashboard={d} onNavigate={onNavigate} />
 
       <ForensicPipeline onNavigate={onNavigate} mayAnalyze={permissions.includes("forensics.analyze")} />
 
@@ -263,6 +267,93 @@ function RecentDecryptions({ dashboard, onNavigate }: { dashboard: Dashboard; on
           { key: "t", head: "Issued", render: (r) => <span className="tiny dim">{r.issued_at?.slice(11, 19) ?? "—"}</span> },
         ]}
       />
+    </Panel>
+  );
+}
+
+/* ------------------------------------------- denials / revocations / watchlist */
+
+function OperationalFeed({ dashboard, onNavigate }: { dashboard: Dashboard; onNavigate: (id: string) => void }) {
+  return (
+    <div className="grid g3">
+      <RiskWatchlist rows={dashboard.risk_watchlist ?? []} onNavigate={onNavigate} />
+      <PolicyDenials rows={dashboard.recent_policy_denials ?? []} total={dashboard.kpis.policy_denials ?? 0} onNavigate={onNavigate} />
+      <RevocationsFeed rows={dashboard.recent_revocations ?? []} total={dashboard.kpis.revocations_recorded ?? 0} onNavigate={onNavigate} />
+    </div>
+  );
+}
+
+function riskTone(level: string): "crit" | "high" | "warn" | "ok" {
+  if (level === "CRITICAL") return "crit";
+  if (level === "HIGH") return "high";
+  if (level === "MEDIUM") return "warn";
+  return "ok";
+}
+
+function RiskWatchlist({ rows, onNavigate }: { rows: RiskWatchRow[]; onNavigate: (id: string) => void }) {
+  const elevated = rows.some((r) => r.risk_level === "HIGH" || r.risk_level === "CRITICAL");
+  return (
+    <Panel title="Risk watchlist" actions={<Badge tone={elevated ? "crit" : "ok"}>{rows.length} TRACKED</Badge>} flush>
+      <DataTable
+        rows={rows}
+        empty={<EmptyState icon="✓" title="No elevated identities" sub="Nobody currently carries a risk score worth flagging." />}
+        columns={[
+          { key: "r", head: "Recipient", render: (r) => <IdentBadge id={r.recipient_id} kind="recipient" /> },
+          { key: "l", head: "Level", render: (r) => <Badge tone={riskTone(r.risk_level)}>{r.risk_level}</Badge> },
+          { key: "s", head: "Score", num: true, render: (r) => (
+            <b style={{ color: `var(--${riskTone(r.risk_level)})` }}>{r.risk_score}</b>
+          ) },
+          { key: "f", head: "Why", render: (r) => (
+            <span className="tiny dim">{r.top_factors?.map((f) => f.replace(/_/g, " ")).join(" · ") ?? "no factors"}</span>
+          ) },
+        ]}
+      />
+      <div className="panel-body" style={{ borderTop: "1px solid var(--hair)" }}>
+        <button className="btn block" onClick={() => onNavigate("security")}>Open risk console →</button>
+      </div>
+    </Panel>
+  );
+}
+
+function PolicyDenials({ rows, total, onNavigate }: {
+  rows: AuditDenial[]; total: number; onNavigate: (id: string) => void;
+}) {
+  return (
+    <Panel title="Policy refusals" actions={<Badge tone={total ? "warn" : "ok"}>{total} TOTAL</Badge>} flush>
+      <DataTable
+        rows={rows}
+        empty={<EmptyState icon="✓" title="No denials recorded" sub="Every decryption request so far was authorised." />}
+        columns={[
+          { key: "a", head: "Actor", render: (r) => <span className="mono">{r.actor_id}</span> },
+          { key: "d", head: "Document", render: (r) => <span className="mono tiny">{r.document_id ?? "—"}</span> },
+          { key: "r", head: "Reason", render: (r) => <span className="tiny muted">{r.reason ?? "—"}</span> },
+          { key: "t", head: "At (UTC)", render: (r) => <span className="tiny dim">{r.occurred_at?.slice(11, 19) ?? "—"}</span> },
+        ]}
+      />
+      <div className="panel-body" style={{ borderTop: "1px solid var(--hair)" }}>
+        <button className="btn block" onClick={() => onNavigate("security")}>Review in security console →</button>
+      </div>
+    </Panel>
+  );
+}
+
+function RevocationsFeed({ rows, total, onNavigate }: { rows: RevocationRow[]; total: number; onNavigate: (id: string) => void }) {
+  return (
+    <Panel title="Recent revocations" actions={<Badge tone={total ? "warn" : "ok"}>{total} TOTAL</Badge>} flush>
+      <DataTable
+        rows={rows}
+        empty={<EmptyState icon="✓" title="Nothing withdrawn" sub="No access has been revoked recently." />}
+        columns={[
+          { key: "s", head: "Subject", render: (r) => <IdentBadge id={r.subject_id} kind={r.subject_type?.toLowerCase()} /> },
+          { key: "t", head: "Type", render: (r) => <span className="tiny dim">{r.subject_type}</span> },
+          { key: "sc", head: "Scope", render: (r) => <Badge tone="crit">{r.scope}</Badge> },
+          { key: "r", head: "Reason", render: (r) => <span className="tiny muted">{r.reason}</span> },
+          { key: "at", head: "At (UTC)", render: (r) => <span className="tiny dim">{r.revoked_at?.slice(11, 19) ?? "—"}</span> },
+        ]}
+      />
+      <div className="panel-body" style={{ borderTop: "1px solid var(--hair)" }}>
+        <button className="btn block" onClick={() => onNavigate("oversight")}>Open revocation register →</button>
+      </div>
     </Panel>
   );
 }

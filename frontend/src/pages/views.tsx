@@ -3,9 +3,9 @@ import { Tabs } from "../components/ui";
 import { Devices, Recipients } from "./Identity";
 import { Forensics } from "./Forensics";
 import { Investigations } from "./Investigations";
-import { Incidents, SecurityEvents } from "./Security";
+import { Incidents, RiskConsole, SecurityEvents } from "./Security";
 import { Ledger, Nodes } from "./Ledger";
-import { Audit, Intelligence, SecurityLab, WatermarkProbe } from "./Ops";
+import { Audit, Intelligence, Revocations, SecurityLab, WatermarkProbe } from "./Ops";
 
 type Tab = { id: string; label: string; needs: string[]; render: () => JSX.Element };
 
@@ -58,6 +58,7 @@ export function SecurityView({ permissions }: { permissions: string[] }) {
       tabs={[
         { id: "events", label: "Events", needs: ["security.alert", "incident.manage"], render: () => <SecurityEvents /> },
         { id: "incidents", label: "Incidents", needs: ["incident.manage"], render: () => <Incidents /> },
+        { id: "risk", label: "Risk", needs: ["incident.manage"], render: () => <RiskConsole /> },
       ]}
     />
   );
@@ -81,6 +82,7 @@ export function OversightView({ permissions }: { permissions: string[] }) {
       permissions={permissions}
       tabs={[
         { id: "audit", label: "Audit Trail", needs: ["audit.read"], render: () => <Audit /> },
+        { id: "revocations", label: "Revocations", needs: ["audit.read"], render: () => <Revocations /> },
         { id: "intelligence", label: "Intelligence", needs: ["ai.query", "commander.dashboard"], render: () => <Intelligence /> },
         { id: "lab", label: "Security Lab", needs: ["incident.manage"], render: () => <SecurityLab /> },
         { id: "watermark", label: "Watermark Probe", needs: ["evidence.read"], render: () => <WatermarkProbe /> },

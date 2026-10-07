@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import {
   api, endpoints,
   type AiBriefingResponse, type AiClustersResponse, type AiHealth, type AuditResponse,
-  type LabOutcome, type LabScenariosResponse, type RobustnessReport,
+  type LabOutcome, type LabScenariosResponse, type RevocationsResponse, type RobustnessReport,
 } from "../api";
 import {
   Badge, DataTable, EmptyState, ErrorNotice, FilterChips, Hash, LoadingState,
@@ -125,6 +125,104 @@ export function Audit() {
           ]}
         />
       </Panel>
+    </div>
+  );
+}
+
+/* ======================================================= revocation register */
+
+export function Revocations() {
+  const register = useAsync<RevocationsResponse>(
+    () => api.get<RevocationsResponse>(`${endpoints.revocations}?limit=200`), [],
+  );
+  const [q, setQ] = useState("");
+  const [type, setType] = useState("all");
+
+  const rows = register.data?.revocations ?? [];
+  const subjectTypes = Array.from(new Set(rows.map((r) => r.subject_type)));
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (type !== "all" && r.subject_type !== type) return false;
+      if (!needle) return true;
+      return [r.revocation_id, r.subject_id, r.subject_type, r.scope, r.reason, r.revoked_by]
+        .some((v) => v?.toLowerCase().includes(needle));
+    });
+  }, [rows, q, type]);
+
+  if (register.loading && !register.data) return <LoadingState label="Loading revocation register" detail="GET /revocations" />;
+  if (register.error) {
+    const st = (register.error as { status?: number }).status;
+    return st === 401 || st === 403
+      ? <Unauthorized error={register.error} onLogin={() => window.location.reload()} />
+      : <ErrorNotice error={register.error} onRetry={register.reload} />;
+  }
+
+  return (
+    <div className="stack">
+      <PageHead
+        title="Revocation Register"
+        sub="Every withdrawn user, device, key, session, share or grant, newest first. Append-only: the rows describe access that is already gone, but the reason it was withdrawn is not."
+        actions={
+          <div className="flex gap-sm">
+            <Badge tone="info">{rows.length} REVOCATIONS RECORDED</Badge>
+            <button className="btn" onClick={register.reload} disabled={register.loading}>
+              {register.loading ? "Refreshing…" : "↻ Refresh"}
+            </button>
+          </div>
+        }
+      />
+
+      <Panel flush>
+        <div className="panel-body" style={{ borderBottom: "1px solid var(--hair)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <SearchInput value={q} onChange={setQ} placeholder="Search subject, type, scope, reason, actor…" width={360} />
+          <FilterChips
+            value={type}
+            onChange={setType}
+            options={[
+              { value: "all", label: "All", count: rows.length },
+              ...subjectTypes.map((t) => ({
+                value: t,
+                label: t.toLowerCase(),
+                count: rows.filter((r) => r.subject_type === t).length,
+              })),
+            ]}
+          />
+          <span className="tiny dim" style={{ marginLeft: "auto" }}>{filtered.length} of {rows.length} shown</span>
+        </div>
+
+        <DataTable
+          rows={filtered}
+          maxHeight={640}
+          empty={<EmptyState icon="✕" title="Nothing in the register" sub="No access has been withdrawn yet, or the filters exclude everything." />}
+          columns={[
+            { key: "t", head: "Revoked (UTC)", render: (r) => <span className="tiny dim">{r.revoked_at?.slice(0, 19).replace("T", " ")}</span> },
+            { key: "s", head: "Subject", render: (r) => (
+              <span className="stack" style={{ gap: 1 }}>
+                <IdentBadge id={r.subject_id} kind={r.subject_type?.toLowerCase()} />
+                <span className="tiny dim">{r.subject_type}</span>
+              </span>
+            ) },
+            { key: "sc", head: "Scope", render: (r) => <Badge tone="crit">{r.scope}</Badge> },
+            { key: "r", head: "Reason", render: (r) => <span className="tiny muted" style={{ maxWidth: 300, display: "block" }}>{r.reason}</span> },
+            { key: "by", head: "Revoked by", render: (r) => <span className="mono">{r.revoked_by}</span> },
+            { key: "c", head: "Cascade", render: (r) => (
+              r.cascaded_to?.length
+                ? <span className="tiny dim">{r.cascaded_to.length} target(s)</span>
+                : <span className="tiny dim">—</span>
+            ) },
+            { key: "h", head: "History", render: (r) => (
+              <Badge tone={r.history_preserved ? "ok" : "warn"}>
+                {r.history_preserved ? "PRESERVED" : "NOT PRESERVED"}
+              </Badge>
+            ) },
+            { key: "p", head: "Policy", render: (r) => <span className="mono">{r.policy_version}</span> },
+          ]}
+        />
+      </Panel>
+
+      {register.data?.plain_explanation ? <Notice tone="info">{register.data.plain_explanation}</Notice> : null}
     </div>
   );
 }

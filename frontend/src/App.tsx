@@ -27,6 +27,12 @@ export default function App() {
   });
   const [lockdown, setLockdown] = useState<LockdownInfo | null>(null);
 
+  useEffect(() => {
+    document.documentElement.dataset.theme =
+      localStorage.getItem("sentinel-theme") ??
+      (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  }, []);
+
   const refreshStatus = useCallback(async () => {
     const [health, ai] = await Promise.all([
       api.get<Health>(endpoints.health).catch(() => null),
@@ -144,7 +150,7 @@ function View({ page, permissions, onNavigate, onLockdownChanged }: {
   page: string; permissions: string[]; onNavigate: (id: string) => void; onLockdownChanged: () => void;
 }) {
   switch (page) {
-    case "documents": return <Documents />;
+    case "documents": return <Documents permissions={permissions} />;
     case "sessions": return <Sessions />;
     case "identity": return <IdentityView permissions={permissions} />;
     case "approvals": return <Approvals />;

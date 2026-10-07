@@ -8,6 +8,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from ..core.config import PATHS, SETTINGS
 
@@ -25,12 +26,21 @@ def postgres_url() -> str | None:
 def _engine_for(path: Path) -> Engine:
     url = postgres_url()
     if url:
-        # Serverless instances come and go, and each one builds its own pool.
-        # A wide per-process pool would burn Supabase's connection budget once
-        # Vercel keeps more than one instance warm, so stay deliberately narrow.
-        # The ceiling still has to cover a request holding its ORM session while
-        # a keystore or artefact helper borrows a second connection.
-        return create_engine(url, future=True, pool_pre_ping=True, pool_size=1, max_overflow=4)
+        # Supabase's session pooler allows 15 client slots TOTAL across every
+        # warm serverless instance. Each instance owns one ops engine plus one
+        # per ledger node, so a generous per-process pool alone can exhaust the
+        # shared budget (EMAXCONNSESSION). Keep this to the minimum a request
+        # actually needs concurrently: the ORM session itself, plus one
+        # borrowed connection for a nested counter/vault write.
+        return create_engine(
+            url,
+            future=True,
+            pool_pre_ping=True,
+            pool_size=1,
+            max_overflow=1,
+            pool_timeout=10,
+            pool_recycle=300,
+        )
 
     engine = create_engine(
         f"sqlite:///{path.as_posix()}",
@@ -59,11 +69,19 @@ def _schema_engine(schema: str) -> Engine:
     engine = create_engine(
         postgres_url(),
         future=True,
+        poolclass=NullPool,
         pool_pre_ping=True,
-        pool_size=1,
-        max_overflow=2,
-        connect_args={"options": f"-csearch_path={schema},public"},
     )
+    # Supabase's session pooler strips the startup-packet `options` parameter,
+    # so the search_path has to be pinned per connection by real statement.
+    @event.listens_for(engine, "connect")
+    def _pin_node_schema(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute(f'SET search_path TO "{schema}", public')
+        finally:
+            cursor.close()
+
     with engine.begin() as connection:
         connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
     return engine
@@ -96,10 +114,22 @@ def node_session(node_id: str) -> Session:
 
 def create_ops_schema() -> None:
     from ..models import Base  # noqa: F401  (registers every mapper)
+    from .shared import shared_enabled, vault_read_meta, vault_write_meta
 
+    # Bump this when ADDED_COLUMNS, the models or the guards change so old
+    # databases are rebuilt instead of quietly skipping missing structure.
+    SCHEMA_VERSION = "sentinel-schema-v1"
+
+    postgres = shared_enabled()
+    if postgres and vault_read_meta("schema_version:ops") == SCHEMA_VERSION:
+        return
     Base.metadata.create_all(ops_engine)
     _ensure_added_columns(ops_engine)
     _install_append_only_guards(ops_engine)
+    if postgres:
+        # create_all/checkfirst plus per-trigger recreation is the slowest part
+        # of a cold start on the shared pooler; run it once, then fast-path.
+        vault_write_meta("schema_version:ops", SCHEMA_VERSION)
 
 
 #: create_all only creates missing tables; it never alters an existing one, so
@@ -152,13 +182,21 @@ def _ensure_added_columns(engine: Engine) -> None:
 
 def create_node_schema(node_id: str) -> None:
     from ..models.ledger import LedgerBase
+    from .shared import shared_enabled, vault_read_meta, vault_write_meta
 
+    SCHEMA_VERSION = "sentinel-schema-v1"
+
+    postgres = shared_enabled()
+    marker = f"schema_version:node:{node_id}"
+    if postgres and vault_read_meta(marker) == SCHEMA_VERSION:
+        return
     LedgerBase.metadata.create_all(node_engine(node_id))
     _install_append_only_guards(node_engine(node_id))
+    if postgres:
+        vault_write_meta(marker, SCHEMA_VERSION)
 
 
 #: Append-only tables, and for each one the columns that must never change.
-#:
 #: Scoping matters: an evidence row legitimately gains analysis columns once,
 #: and a signed event legitimately gains its ledger link. What must never change
 #: is the signed or custody-bearing content, so the guards target those columns

@@ -74,6 +74,8 @@ export const api = {
   get: <T,>(path: string) => request<T>(path),
   post: <T,>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) }),
+  put: <T,>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PUT", body: body === undefined ? undefined : JSON.stringify(body) }),
   postForm: <T,>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form }),
 };
 
@@ -100,8 +102,11 @@ export const endpoints = {
   documents: "/documents",
   document: (id: string) => `/documents/${id}`,
   documentGrants: (id: string) => `/documents/${id}/grants`,
+  documentPolicy: (id: string) => `/documents/${id}/policy`,
   documentLifecycle: (id: string) => `/documents/${id}/lifecycle`,
   documentSuspend: (id: string) => `/documents/${id}/suspend`,
+  documentShares: (id: string) => `/documents/${id}/shares`,
+  documentAccessRevoke: (id: string) => `/documents/${id}/access/revoke`,
   documentVersions: (id: string) => `/documents/${id}/versions`,
   purgePlaintext: (id: string) => `/documents/${id}/purge-plaintext`,
   classifications_policy: "/documents/classifications",
@@ -148,6 +153,9 @@ export const endpoints = {
   securityEvents: "/security-events",
   acknowledgeEvent: (id: string) => `/security-events/${id}/acknowledge`,
   incidents: "/incidents",
+  risk: "/risk",
+  riskDetail: (id: string) => `/risk/${id}`,
+  revocations: "/revocations",
   lockdown: "/lockdown",
   unlock: "/unlock",
   approvals: "/approvals",

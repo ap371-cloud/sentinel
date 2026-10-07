@@ -1,16 +1,16 @@
-"""Optional local intelligence layer (Ollama).
+"""Optional local intelligence layer.
 
 Hard boundary: this module may summarise, explain and cluster information that
 the deterministic systems have already verified. It never participates in an
 authorisation, signature, ledger or forensic decision, and its output is always
-labelled as AI-assisted. If Ollama is absent the platform is unaffected.
+labelled as AI-assisted. The local LLM backend has been removed from this
+machine, so every call reports OFFLINE while deterministic systems continue
+unaffected.
 """
 
 from __future__ import annotations
 
 import json
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
@@ -26,42 +26,26 @@ PROMPT_PREFIX = (
 )
 
 
-def _request(path: str, payload: dict[str, Any] | None = None, *, method: str = "GET") -> dict[str, Any]:
-    url = f"{SETTINGS.ollama_url.rstrip('/')}{path}"
-    data = json.dumps(payload).encode("utf-8") if payload is not None else None
-    request = urllib.request.Request(url, data=data, method=method)
-    request.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(request, timeout=SETTINGS.ollama_timeout_seconds) as response:
-        return json.loads(response.read().decode("utf-8"))
+def _jarvis_ask(prompt: str, *, model: str | None = None, system_prompt: str | None = None) -> str:
+    """The local LLM backend is not installed, so this always fails and the
+    caller degrades to the deterministic OFFLINE response. Never used for
+    authorisation, verification or verdicts."""
+    raise RuntimeError("local intelligence backend not installed")
 
 
 def health() -> dict[str, Any]:
     """Never raises. A missing or slow service is reported, not propagated."""
-    try:
-        response = _request("/api/tags")
-        models = [entry.get("name", "") for entry in response.get("models", [])]
-        wanted = SETTINGS.ollama_model
-        return {
-            "available": True,
-            "endpoint": SETTINGS.ollama_url,
-            "models": models,
-            "configured_model": wanted,
-            "model_present": any(m.split(":")[0] == wanted.split(":")[0] for m in models),
-            "status": "ONLINE",
-            "role": "Summarisation only. Never used for authorisation, verification or verdicts.",
-        }
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError) as exc:
-        return {
-            "available": False,
-            "endpoint": SETTINGS.ollama_url,
-            "models": [],
-            "configured_model": SETTINGS.ollama_model,
-            "model_present": False,
-            "status": OFFLINE_LABEL,
-            "reason": type(exc).__name__,
-            "role": "Summarisation only. Never used for authorisation, verification or verdicts.",
-            "impact": "All deterministic security functions continue to operate normally.",
-        }
+    return {
+        "available": False,
+        "endpoint": SETTINGS.ollama_url,
+        "models": [],
+        "configured_model": SETTINGS.ollama_model,
+        "model_present": False,
+        "status": OFFLINE_LABEL,
+        "reason": "BackendNotInstalled",
+        "role": "Summarisation only. Never used for authorisation, verification or verdicts.",
+        "impact": "All deterministic security functions continue to operate normally.",
+    }
 
 
 def _offline(reason: str, request_summary: str) -> dict[str, Any]:
@@ -81,32 +65,23 @@ def _offline(reason: str, request_summary: str) -> dict[str, Any]:
 
 def _complete(prompt: str, request_summary: str) -> dict[str, Any]:
     try:
-        response = _request(
-            "/api/generate",
-            {
-                "model": SETTINGS.ollama_model,
-                "prompt": PROMPT_PREFIX + prompt,
-                "stream": False,
-                "options": {"temperature": 0.1, "num_predict": 220},
-            },
-            method="POST",
-        )
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError) as exc:
+        summary = _jarvis_ask(prompt)
+        return {
+            "label": AI_LABEL,
+            "available": True,
+            "summary": summary.strip(),
+            "model": SETTINGS.ollama_model,
+            "requested": request_summary,
+            "authority": (
+                "Advisory only. No authorisation, signature, ledger or forensic decision derives from this "
+                "text."
+            ),
+            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+    except Exception as exc:
         offline = _offline(f"{type(exc).__name__}: {exc}", request_summary)
         offline["health"] = health()
         return offline
-    return {
-        "label": AI_LABEL,
-        "available": True,
-        "summary": (response.get("response") or "").strip(),
-        "model": SETTINGS.ollama_model,
-        "requested": request_summary,
-        "authority": (
-            "Advisory only. No authorisation, signature, ledger or forensic decision derives from this "
-            "text."
-        ),
-        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-    }
 
 
 def summarise_incident(incident: dict[str, Any]) -> dict[str, Any]:

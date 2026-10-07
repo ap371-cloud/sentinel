@@ -12,7 +12,7 @@ from ..core.config import Role, Severity
 from ..core.exceptions import NotFound
 from ..core.timeutil import utcnow
 from ..models.identity import Recipient
-from ..models.security import Incident, SecurityEvent
+from ..models.security import Incident, Revocation, SecurityEvent
 from ..security import anomaly_detection, attack_lab, incident_engine, lockdown
 from ..services import ai_service, approval_service, audit_service, command_service, risk_service
 from .deps import current_recipient, db, permitted, readable
@@ -100,9 +100,49 @@ def risk_assessment(
     }
 
 
+@router.get("/revocations")
+def revocations(
+    session: Session = Depends(db),
+    _: Recipient = Depends(readable("audit.read")),
+    limit: int = 50,
+    subject_type: str | None = None,
+) -> dict[str, Any]:
+    """The withdrawal register: every revocation of a user, device, key,
+    session, share or document grant, newest first. Append-only — the rows
+    it describes are already gone, but the record of why is not."""
+    statement = select(Revocation)
+    if subject_type:
+        statement = statement.where(Revocation.subject_type == subject_type)
+    rows = list(
+        session.execute(
+            statement.order_by(Revocation.revoked_at.desc()).limit(min(limit, 200))
+        ).scalars()
+    )
+    return {
+        "revocations": [
+            {
+                "revocation_id": row.revocation_id,
+                "subject_type": row.subject_type,
+                "subject_id": row.subject_id,
+                "scope": row.scope,
+                "reason": row.reason,
+                "revoked_by": row.revoked_by,
+                "revoked_at": row.revoked_at.isoformat(timespec="seconds"),
+                "cascaded_to": json.loads(row.cascaded_to or "[]"),
+                "history_preserved": row.history_preserved,
+                "policy_version": row.policy_version,
+            }
+            for row in rows
+        ],
+        "plain_explanation": (
+            "New access is refused from the moment of revocation; records of what already "
+            "happened are left untouched."
+        ),
+    }
+
+
 class AcknowledgeRequest(BaseModel):
     note: str = Field(min_length=3, max_length=400)
-
 
 @router.post("/security-events/{event_id}/acknowledge")
 def acknowledge(

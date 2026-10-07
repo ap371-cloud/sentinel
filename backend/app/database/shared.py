@@ -99,7 +99,8 @@ def ensure_shared_tables() -> None:
 def _query(statement: str, params: dict | None = None):
     ensure_shared_tables()
     with ops_engine.begin() as connection:
-        return list(connection.execute(text(statement), params or {}))
+        result = connection.execute(text(statement), params or {})
+        return list(result) if result.returns_rows else []
 
 
 # ---- key vault -------------------------------------------------------------

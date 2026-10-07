@@ -16,10 +16,10 @@ from ..ledger.chain import NETWORK
 from ..models.documents import Document
 from ..models.forensic import EvidenceItem, InvestigationCase, LedgerNode
 from ..models.identity import Device, KeyMetadata, Recipient
-from ..models.security import AnomalyObservation, ApprovalRequest, SecurityEvent
+from ..models.security import AnomalyObservation, ApprovalRequest, AuditRecord, Revocation, SecurityEvent
 from ..models.sessions import DecryptionSession, Watermark
 from ..security import anomaly_detection, incident_engine, lockdown
-from . import audit_service, decryption_service
+from . import audit_service, decryption_service, risk_service
 
 
 def _utcnow() -> datetime:
@@ -121,6 +121,16 @@ def commander_dashboard(session: Session) -> dict[str, Any]:
             "open_investigations": open_cases,
             "verified_evidence": verified_evidence,
             "pending_approvals": pending_approvals,
+            "policy_denials": int(
+                session.execute(
+                    select(func.count())
+                    .select_from(AuditRecord)
+                    .where(AuditRecord.action == "DECRYPT_DENIED")
+                ).scalar_one()
+            ),
+            "revocations_recorded": int(
+                session.execute(select(func.count()).select_from(Revocation)).scalar_one()
+            ),
         },
         "security_posture": posture,
         "ledger_health": {
@@ -144,6 +154,38 @@ def commander_dashboard(session: Session) -> dict[str, Any]:
             ).scalars()
         ],
         "watermark_engine": watermark_engine_status(session),
+        "recent_policy_denials": [
+            {
+                "audit_id": row.audit_id,
+                "actor_id": row.actor_id,
+                "actor_role": row.actor_role,
+                "document_id": row.document_id,
+                "reason": row.reason,
+                "occurred_at": row.occurred_at.isoformat(timespec="seconds"),
+            }
+            for row in session.execute(
+                select(AuditRecord)
+                .where(AuditRecord.action == "DECRYPT_DENIED")
+                .order_by(AuditRecord.occurred_at.desc())
+                .limit(5)
+            ).scalars()
+        ],
+        "recent_revocations": [
+            {
+                "revocation_id": row.revocation_id,
+                "subject_type": row.subject_type,
+                "subject_id": row.subject_id,
+                "scope": row.scope,
+                "reason": row.reason,
+                "revoked_by": row.revoked_by,
+                "revoked_at": row.revoked_at.isoformat(timespec="seconds"),
+                "policy_version": row.policy_version,
+            }
+            for row in session.execute(
+                select(Revocation).order_by(Revocation.revoked_at.desc()).limit(5)
+            ).scalars()
+        ],
+        "risk_watchlist": risk_watchlist(session),
         "air_gap": EGRESS.status(),
         "post_quantum": PQC.describe(),
         "key_vault": VAULT.storage_report(),
@@ -153,6 +195,30 @@ def commander_dashboard(session: Session) -> dict[str, Any]:
             "not establish which individual physically released the material."
         ),
     }
+
+
+def risk_watchlist(session: Session, limit: int = 5) -> list[dict[str, Any]]:
+    """The identities the explainable risk scorer currently ranks highest.
+
+    Summary only — the full per-factor breakdown stays on the drill-down
+    endpoint — but every row carries its score and the factors behind it, so
+    the board never shows a number without its reasons.
+    """
+    rows: list[dict[str, Any]] = []
+    for recipient in session.execute(select(Recipient).order_by(Recipient.recipient_id)).scalars():
+        assessment = risk_service.assess(session, recipient.recipient_id)
+        rows.append(
+            {
+                "recipient_id": assessment["recipient_id"],
+                "risk_score": assessment["risk_score"],
+                "risk_level": assessment["risk_level"],
+                "top_factors": [
+                    factor["factor"] for factor in assessment["contributing_factors"][:2]
+                ],
+            }
+        )
+    rows.sort(key=lambda item: item["risk_score"], reverse=True)
+    return rows[:limit]
 
 
 def watermark_engine_status(session: Session) -> dict[str, Any]:
