@@ -70,7 +70,7 @@ export function Shell({ page, operator, status, lockdown, onNavigate, onLogout, 
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const stored = localStorage.getItem("sentinel-theme");
     if (stored === "light" || stored === "dark") return stored;
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return "light";
   });
 
   useEffect(() => {
