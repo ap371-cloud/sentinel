@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, type ReactNode } from "react";
+﻿import { useState, type ReactNode } from "react";
 import { Badge, CopyButton, Dot, StatusBadge } from "./ui";
 
 /* ------------------------------------------------------------------- nav */
@@ -67,16 +67,6 @@ export type LockdownInfo = { active: boolean; reason: string | null; activated_a
 
 export function Shell({ page, operator, status, lockdown, onNavigate, onLogout, children }: ShellProps) {
   const [collapsed, setCollapsed] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">(() => {
-    const stored = localStorage.getItem("sentinel-theme");
-    if (stored === "light" || stored === "dark") return stored;
-    return "light";
-  });
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem("sentinel-theme", theme);
-  }, [theme]);
 
   const current = NAV.find((n) => n.id === page) ?? NAV[0];
   const initials = (operator?.display_name ?? operator?.id ?? "??")
@@ -179,15 +169,6 @@ export function Shell({ page, operator, status, lockdown, onNavigate, onLogout, 
             <Dot tone={status.systemStatus === "DEGRADED" ? "warn" : "ok"} pulse />
             {status.systemStatus}
           </span>
-
-          <button
-            className="icon-btn"
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-          >
-            {theme === "dark" ? "☾" : "☀"}
-          </button>
 
           <button
             className="icon-btn"
