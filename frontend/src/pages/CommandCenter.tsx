@@ -632,7 +632,7 @@ function ForensicPipeline({ onNavigate, mayAnalyze }: {
 
       {result ? (
         <div className="mt">
-          <Notice tone={result.outcome === "VERIFIED_ASSOCIATION" ? "ok" : "warn"} title={result.outcome}>
+          <Notice tone={result.outcome === "VERIFIED ASSOCIATION" ? "ok" : "warn"} title={result.outcome}>
             {result.outcome_explanation}
           </Notice>
         </div>

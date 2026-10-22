@@ -66,7 +66,7 @@ executed rather than asserted.
 ## Architecture at a glance
 
 ```
-COMMAND TERMINAL (React, dark UI, 127.0.0.1)
+COMMAND TERMINAL (React, light UI, 127.0.0.1)
         │
         ▼
    FASTAPI  ──►  POLICY ENGINE (RBAC + ABAC + need-to-know, 14 checks)
@@ -154,9 +154,9 @@ And when it breaks:
 **Crypto** — `pqcrypto` (ML-KEM-768, ML-DSA-65), `cryptography` (AES-256-GCM, HKDF, scrypt)
 **Watermarking** — PyMuPDF, NumPy, Pillow; custom 8×8 DCT spread-spectrum embedder
 **Ledger** — custom permissioned chain: hash-linked blocks, RFC-6962 Merkle proofs, quorum certificates
-**Frontend** — React 18 + TypeScript + Vite, dark command interface, local assets only
+**Frontend** — React 18 + TypeScript + Vite, light command interface, local assets only
 **AI** — Ollama, optional, localhost only, summarisation only
-**Tests** — pytest, 183 tests, no mocks of the properties under test
+**Tests** — pytest, 393 tests, no mocks of the properties under test
 
 ---
 
@@ -253,7 +253,7 @@ backend/app/
   services/    identity, document, decryption, watermark, forensic, command, AI
   models/      relational schema
 frontend/src/  React command interface
-tests/         183 pytest cases
+tests/         393 pytest cases
 scripts/       demo, API smoke, smoke test, watermark calibration
 data/ keys/ ledger/ evidence/   runtime state (regenerable, never committed)
 ```

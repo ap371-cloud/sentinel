@@ -23,7 +23,7 @@ export function Dot({ tone = "idle", pulse, title }: {
    the UI must never invent a severity it wasn't told about. */
 const STATUS_TONE: Record<string, Tone> = {
   ACTIVE: "ok", VERIFIED: "ok", VALID: "ok", SEALED: "ok", ENCRYPTED: "ok",
-  AUTHORIZED: "ok", VERIFIED_ASSOCIATION: "ok", CONFIRMED: "ok", PASS: "ok",
+  AUTHORIZED: "ok", "VERIFIED ASSOCIATION": "ok", CONFIRMED: "ok", PASS: "ok",
   PARTIALLY_VERIFIED: "warn", WATERMARK_NOT_RECOVERED: "warn", INSUFFICIENT_EVIDENCE: "warn",
   DOCUMENT_MODIFIED: "crit", SIGNATURE_INVALID: "crit", LEDGER_PROOF_INVALID: "crit",
   NO_MATCH_FOUND: "crit",
