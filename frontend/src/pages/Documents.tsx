@@ -72,6 +72,57 @@ export function Documents({ permissions }: { permissions: string[] }) {
         }
       />
 
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Registered Documents</span>
+            <span className="material-symbols-outlined text-primary text-[20px]">description</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-on-surface">{rows.length}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-primary h-full w-full"></div>
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Active Artefacts</span>
+            <span className="material-symbols-outlined text-ok text-[20px]">check_circle</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-ok">{counts.active}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-ok h-full w-[60%]"></div>
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Sealed Versions</span>
+            <span className="material-symbols-outlined text-info text-[20px]">lock</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-info">{counts.sealed}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-info h-full w-[40%]"></div>
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Revoked / Suspended</span>
+            <span className="material-symbols-outlined text-crit text-[20px]">block</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-crit">{counts.suspended + counts.revoked}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-crit h-full w-[20%]"></div>
+          </div>
+        </div>
+      </div>
+
       <Panel flush>
         <div className="panel-body" style={{ borderBottom: "1px solid var(--hair)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <SearchInput value={q} onChange={setQ} placeholder="Search ID, title, unit, classification…" width={340} />

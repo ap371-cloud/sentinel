@@ -66,9 +66,9 @@ export function Recipients() {
       </div>
 
       <Panel flush>
-        <div className="panel-body" style={{ borderBottom: "1px solid var(--hair)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <SearchInput value={q} onChange={setQ} placeholder="Search name, ID, role, unit, email…" width={320} />
-          <FilterChips
+          <div className="panel-body" style={{ borderBottom: "1px solid var(--hair)", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <SearchInput value={q} onChange={setQ} placeholder="Filter UID, clearance, unit…" width={320} />
+            <FilterChips
             value={filter}
             onChange={setFilter}
             options={[
@@ -81,26 +81,45 @@ export function Recipients() {
           <span className="tiny dim" style={{ marginLeft: "auto" }}>{filtered.length} of {rows.length} shown</span>
         </div>
 
-        <DataTable
-          rows={filtered}
-          onRow={(r) => setOpen(r)}
-          empty={<EmptyState icon="◍" title="No identities match" sub={q ? `Nothing matches “${q}”.` : "No identity carries this status."} />}
-          columns={[
-            { key: "n", head: "Name", render: (r) => (
-              <span className="stack" style={{ gap: 2 }}>
-                <span>{r.display_name}</span>
-                <span className="tiny dim">{r.unit}</span>
-              </span>
-            ) },
-            { key: "id", head: "Recipient ID", render: (r) => <IdentBadge id={r.recipient_id} kind="recipient" /> },
-            { key: "r", head: "Role", render: (r) => <Badge tone="info">{r.role}</Badge> },
-            { key: "c", head: "Clearance", num: true, render: (r) => (
-              <span title={r.clearance_label}>{r.clearance}</span>
-            ) },
-            { key: "s", head: "Status", render: (r) => <StatusBadge status={r.status} /> },
-            { key: "l", head: "Last login", render: (r) => <span className="tiny dim">{r.last_login_at?.slice(0, 19).replace("T", " ") ?? "never"}</span> },
-          ]}
-        />
+          <DataTable
+            rows={filtered}
+            onRow={(r) => setOpen(r)}
+            empty={<EmptyState icon="◍" title="No identities match" sub={q ? `Nothing matches “${q}”.` : "No identity carries this status."} />}
+            columns={[
+              {
+                key: "id",
+                head: "Identity / UID",
+                render: (r) => (
+                  <div className="flex items-center gap-3">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-on-surface">{r.display_name}</span>
+                      <span className="tiny dim font-mono">UID: {r.recipient_id}</span>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                key: "role",
+                head: "Role & Unit",
+                render: (r) => (
+                  <div className="stack" style={{ gap: 1 }}>
+                    <span className="font-medium text-on-surface">{r.role}</span>
+                    <span className="tiny dim">{r.unit}</span>
+                  </div>
+                ),
+              },
+              { key: "c", head: "Clearance", num: true, render: (r) => (
+                <span title={r.clearance_label}>{r.clearance} — {r.clearance_label}</span>
+              ) },
+              { key: "s", head: "Trust State", render: (r) => <StatusBadge status={r.status} /> },
+              { key: "l", head: "Session Status", render: (r) => <span className="tiny dim">{r.last_login_at?.slice(0, 19).replace("T", " ") ?? "active"}</span> },
+              {
+                key: "a", head: "Actions", render: (r) => (
+                  <button className="btn sm ghost" onClick={() => setOpen(r)}>View</button>
+                ),
+              },
+            ]}
+          />
       </Panel>
 
       {open ? (
@@ -322,17 +341,23 @@ export function Devices() {
           maxHeight={620}
           empty={<EmptyState icon="▣" title="No devices match" sub={q ? `Nothing matches “${q}”.` : "No device carries this trust state."} />}
           columns={[
-            { key: "i", head: "Device ID", render: (r) => <IdentBadge id={r.device_id} kind="device" /> },
-            { key: "l", head: "Device", render: (r) => r.device_name },
-            { key: "o", head: "Owner", render: (r) => <span className="mono">{r.recipient_id}</span> },
-            { key: "t", head: "Trust", render: (r) => <StatusBadge status={r.trust_state} /> },
-            { key: "s", head: "Status", render: (r) => <StatusBadge status={r.status} /> },
-            { key: "n", head: "Trust note", render: (r) => (
-              <span className="tiny muted" style={{ maxWidth: 260, display: "block" }}>{r.trust_note ?? "—"}</span>
-            ) },
-            { key: "seen", head: "Last seen", render: (r) => <span className="tiny dim">{r.last_seen_at?.slice(0, 19).replace("T", " ") ?? "never"}</span> },
             {
-              key: "a", head: "Action", render: (r) => (
+              key: "id",
+              head: "Device ID / Name",
+              render: (r) => (
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-sm font-semibold">{r.device_id}</span>
+                  <div>
+                    <div className="font-medium">{r.device_name}</div>
+                  </div>
+                </div>
+              ),
+            },
+            { key: "o", head: "Owner", render: (r) => <span className="mono">{r.recipient_id}</span> },
+            { key: "t", head: "Trust State", render: (r) => <StatusBadge status={r.trust_state} /> },
+            { key: "s", head: "Key State", render: (r) => <StatusBadge status={r.status} /> },
+            {
+              key: "a", head: "Actions", render: (r) => (
                 r.status === "REVOKED" ? (
                   <button className="btn sm" disabled={busy === r.device_id} onClick={() => act(r, false)}>Re-register</button>
                 ) : (

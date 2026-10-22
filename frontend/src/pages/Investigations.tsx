@@ -65,7 +65,7 @@ export function Investigations() {
         <Metric label="Closed" value={counts.CLOSED} tone="ok" sub="final status recorded" />
         <Metric
           label="Verified attribution"
-          value={rows.filter((r) => r.final_verification_status === "VERIFIED_ASSOCIATION").length}
+          value={rows.filter((r) => r.final_verification_status === "VERIFIED ASSOCIATION").length}
           tone="ok"
           sub="link to a session"
         />

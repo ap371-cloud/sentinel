@@ -14,6 +14,28 @@ import { IdentBadge } from "../components/layout";
 const SEVERITIES = ["all", "CRITICAL", "HIGH", "MEDIUM", "LOW"] as const;
 type Sev = typeof SEVERITIES[number];
 
+const SEV_BG: Record<string, string> = {
+  CRITICAL: "var(--crit-bg)",
+  HIGH: "var(--warn-bg)",
+  MEDIUM: "var(--info-bg)",
+  LOW: "var(--idle-bg)",
+};
+const SEV_COLOR: Record<string, string> = {
+  CRITICAL: "var(--crit)",
+  HIGH: "var(--warn)",
+  MEDIUM: "var(--info)",
+  LOW: "var(--idle)",
+};
+const SEV_ICON: Record<string, string> = {
+  CRITICAL: "emergency",
+  HIGH: "warning",
+  MEDIUM: "info",
+  LOW: "radio",
+};
+function sevBg(s: string) { return SEV_BG[s] ?? "var(--idle-bg)"; }
+function sevColor(s: string) { return SEV_COLOR[s] ?? "var(--idle)"; }
+function sevIcon(s: string) { return SEV_ICON[s] ?? "radio"; }
+
 /* ======================================================= security events */
 
 export function SecurityEvents() {
@@ -109,21 +131,34 @@ export function SecurityEvents() {
           onRow={(r) => setOpen(r)}
           empty={<EmptyState icon="⚡" title="No events match" sub={q || sev !== "all" ? "Relax the filters to see the full queue." : "The policy engine has not raised anything."} />}
           columns={[
-            { key: "s", head: "Severity", render: (r) => <SeverityBadge severity={r.severity} /> },
-            { key: "t", head: "Event", render: (r) => (
-              <span className="stack" style={{ gap: 2 }}>
-                <span>{r.title}</span>
-                <span className="tiny dim">{r.category}</span>
-              </span>
+            {
+              key: "sev",
+              head: "Severity / Status",
+              render: (r) => (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-mono font-bold" style={{ background: sevBg(r.severity), color: sevColor(r.severity) }}>
+                  <span className="material-symbols-outlined text-[14px]">{sevIcon(r.severity)}</span>
+                  {r.severity}
+                </span>
+              ),
+            },
+            { key: "time", head: "Timestamp", render: (r) => <span className="tiny dim font-mono">{r.detected_at?.slice(0, 19).replace("T", " ")} UTC</span> },
+            { key: "tv", head: "Threat Vector / Signature", render: (r) => (
+              <div className="stack" style={{ gap: 1 }}>
+                <span className="font-medium">{r.title}</span>
+                <span className="tiny dim font-mono">{r.category}</span>
+              </div>
             ) },
-            { key: "i", head: "Event ID", render: (r) => <IdentBadge id={r.security_event_id} kind="event" /> },
-            { key: "d", head: "Detected (UTC)", render: (r) => <span className="tiny dim">{r.detected_at?.slice(0, 19).replace("T", " ")}</span> },
+            { key: "src", head: "Source Asset", render: (r) => <span className="tiny dim">{r.actor_id ?? "—"}</span> },
+            { key: "tgt", head: "Target Asset", render: (r) => <span className={`tiny ${r.document_id ? "text-error font-medium" : "dim"}`}>{r.document_id ?? (r.session_id ?? r.subject_id ?? "—")}</span> },
             { key: "st", head: "Status", render: (r) => <StatusBadge status={r.status} /> },
             {
-              key: "a", head: "", render: (r) => (
-                r.status === "OPEN" || r.status === "NEW"
-                  ? <button className="btn sm" onClick={() => acknowledge(r)}>Acknowledge</button>
-                  : null
+              key: "a", head: "Triage Actions", render: (r) => (
+                <div className="flex items-center justify-end gap-2">
+                  {r.status === "OPEN" || r.status === "NEW" ? (
+                    <button className="btn sm" onClick={() => acknowledge(r)}>Acknowledge</button>
+                  ) : null}
+                  <button className="btn sm ghost" onClick={() => setOpen(r)}>Investigate</button>
+                </div>
               ),
             },
           ]}

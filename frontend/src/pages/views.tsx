@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Tabs } from "../components/ui";
 import { Devices, Recipients } from "./Identity";
 import { Forensics } from "./Forensics";
@@ -13,24 +13,26 @@ function visibleTabs(tabs: Tab[], permissions: string[]): Tab[] {
   return tabs.filter((t) => t.needs.some((p) => permissions.includes(p)));
 }
 
-function Hub({ tabs, permissions }: { tabs: Tab[]; permissions: string[] }) {
+function Hub({ tabs, permissions, initialTab }: { tabs: Tab[]; permissions: string[]; initialTab?: string }) {
   const reachable = visibleTabs(tabs, permissions);
-  const [picked, setPicked] = useState<string | null>(null);
-  const active = reachable.find((t) => t.id === picked) ?? reachable[0];
+  const [picked, setPicked] = useState<string | null>(initialTab ?? null);
+  useEffect(() => { setPicked(initialTab ?? null); }, [initialTab, reachable]);
+  const active = (picked && reachable.find((t) => t.id === picked)) ?? reachable[0];
 
   if (!active) return null;
   return (
     <>
       <Tabs tabs={reachable.map(({ id, label }) => ({ id, label }))} active={active.id} onPick={setPicked} />
-      {active.render()}
+      <div key={active.id}>{active.render()}</div>
     </>
   );
 }
 
-export function IdentityView({ permissions }: { permissions: string[] }) {
+export function IdentityView({ permissions, initialTab }: { permissions: string[]; initialTab?: string }) {
   return (
     <Hub
       permissions={permissions}
+      initialTab={initialTab}
       tabs={[
         { id: "recipients", label: "Recipients", needs: ["recipient.create"], render: () => <Recipients /> },
         { id: "devices", label: "Devices", needs: ["device.manage"], render: () => <Devices /> },
@@ -39,10 +41,11 @@ export function IdentityView({ permissions }: { permissions: string[] }) {
   );
 }
 
-export function ForensicsView({ permissions }: { permissions: string[] }) {
+export function ForensicsView({ permissions, initialTab }: { permissions: string[]; initialTab?: string }) {
   return (
     <Hub
       permissions={permissions}
+      initialTab={initialTab}
       tabs={[
         { id: "verify", label: "Verification", needs: ["evidence.read", "forensics.analyze"], render: () => <Forensics /> },
         { id: "cases", label: "Investigations", needs: ["evidence.read", "case.manage"], render: () => <Investigations /> },
@@ -51,14 +54,15 @@ export function ForensicsView({ permissions }: { permissions: string[] }) {
   );
 }
 
-export function SecurityView({ permissions }: { permissions: string[] }) {
+export function SecurityView({ permissions, initialTab }: { permissions: string[]; initialTab?: string }) {
   return (
     <Hub
       permissions={permissions}
+      initialTab={initialTab}
       tabs={[
         { id: "events", label: "Events", needs: ["security.alert", "incident.manage"], render: () => <SecurityEvents /> },
         { id: "incidents", label: "Incidents", needs: ["incident.manage"], render: () => <Incidents /> },
-        { id: "risk", label: "Risk", needs: ["incident.manage"], render: () => <RiskConsole /> },
+        { id: "policies", label: "Policies", needs: ["incident.manage", "policy.modify"], render: () => <RiskConsole /> },
       ]}
     />
   );

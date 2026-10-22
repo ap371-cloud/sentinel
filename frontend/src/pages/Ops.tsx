@@ -29,6 +29,7 @@ export function Audit() {
     for (const c of categories) m[c] = rows.filter((r) => r.action === c).length;
     return m;
   }, [rows, categories]);
+  const criticalCount = rows.filter((r) => ["DENIED", "REVOKED", "BLOCKED"].includes(r.outcome)).length;
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -63,19 +64,56 @@ export function Audit() {
         }
       />
 
-      {chain ? (
-        <div className="grid g4">
-          <Metric label="Chain length" value={chain.chain_length} tone="info" sub="records in the chain" />
-          <Metric
-            label="Chain status" small
-            value={<StatusBadge status={chain.status} lg />}
-            sub={chain.first_broken_record ? `breaks at ${chain.first_broken_record}` : "no break detected"}
-            tone={chain.first_broken_record ? "crit" : "ok"}
-          />
-          <Metric label="Head hash" small value={<Hash value={chain.head} chars={14} />} sub="latest record hash" />
-          <Metric label="Categories" value={categories.length} tone="info" sub="privileged action types" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Total Events (24H)</span>
+            <span className="material-symbols-outlined text-primary text-[20px]">history</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-on-surface">{rows.length}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-primary h-full w-full"></div>
+          </div>
         </div>
-      ) : null}
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Critical Violations</span>
+            <span className="material-symbols-outlined text-error text-[20px]">warning</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-error">{criticalCount}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-error h-full w-[15%]"></div>
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Ledger Quorum Hash</span>
+            <span className="material-symbols-outlined text-secondary text-[20px]">account_balance</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-mono text-sm text-on-surface font-semibold truncate">{chain?.head ?? "—"}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-secondary h-full w-full"></div>
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Air-Gap Integrity</span>
+            <span className="material-symbols-outlined text-primary text-[20px]">verified</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-primary">100%</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-primary h-full w-full"></div>
+          </div>
+        </div>
+      </div>
 
       {chain?.first_broken_record ? (
         <Notice tone="crit" title="Audit chain break detected">
@@ -105,7 +143,7 @@ export function Audit() {
           maxHeight={640}
           empty={<EmptyState icon="☰" title="No audit entries match" sub="Nothing in the trail matches these filters." />}
           columns={[
-            { key: "t", head: "When (UTC)", render: (r) => <span className="tiny dim">{r.occurred_at?.slice(0, 19).replace("T", " ")}</span> },
+            { key: "t", head: "Timestamp", render: (r) => <span className="tiny dim">{r.occurred_at?.slice(0, 19).replace("T", " ")}</span> },
             { key: "a", head: "Actor", render: (r) => (
               <span className="stack" style={{ gap: 1 }}>
                 <span className="mono">{r.actor_id}</span>

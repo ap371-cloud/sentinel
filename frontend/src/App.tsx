@@ -10,11 +10,13 @@ import { CommandCenter } from "./pages/CommandCenter";
 import { Documents } from "./pages/Documents";
 import { Sessions } from "./pages/Sessions";
 import { Approvals } from "./pages/Approvals";
+import { SettingsView } from "./pages/Settings";
 import { ForensicsView, IdentityView, LedgerView, OversightView, SecurityView } from "./pages/views";
 
 export default function App() {
   const [operator, setOperator] = useState<Operator | null>(null);
   const [page, setPage] = useState("command");
+  const [tab, setTab] = useState<string | null>(null);
   const [status, setStatus] = useState<ShellStatus>({
     postureScore: null,
     postureRating: "",
@@ -84,7 +86,10 @@ export default function App() {
       permissions: me.permissions,
     });
     const reachable = NAV.find((n) => navVisible(n, me.permissions));
-    if (reachable) setPage(reachable.id);
+    if (reachable) {
+      setPage(reachable.route);
+      setTab(reachable.tab ?? null);
+    }
   }, []);
 
   useEffect(() => {
@@ -125,18 +130,19 @@ export default function App() {
     );
   }
 
-  return (
+return (
     <ToastProvider>
       <Shell
         page={page}
         operator={operator}
         status={status}
         lockdown={lockdown}
-        onNavigate={setPage}
+        onNavigate={(route: string) => setPage(route)}
         onLogout={signOut}
       >
         <View
           page={page}
+          tab={tab ?? undefined}
           permissions={operator.permissions}
           onNavigate={setPage}
           onLockdownChanged={refreshLockdown}
@@ -146,18 +152,19 @@ export default function App() {
   );
 }
 
-function View({ page, permissions, onNavigate, onLockdownChanged }: {
-  page: string; permissions: string[]; onNavigate: (id: string) => void; onLockdownChanged: () => void;
+function View({ page, tab, permissions, onNavigate, onLockdownChanged }: {
+  page: string; tab: string | undefined; permissions: string[]; onNavigate: (id: string) => void; onLockdownChanged: () => void;
 }) {
   switch (page) {
     case "documents": return <Documents permissions={permissions} />;
     case "sessions": return <Sessions />;
-    case "identity": return <IdentityView permissions={permissions} />;
+    case "identity": return <IdentityView permissions={permissions} initialTab={tab ?? undefined} />;
     case "approvals": return <Approvals />;
-    case "forensics": return <ForensicsView permissions={permissions} />;
-    case "security": return <SecurityView permissions={permissions} />;
+    case "forensics": return <ForensicsView permissions={permissions} initialTab={tab ?? undefined} />;
+    case "security": return <SecurityView permissions={permissions} initialTab={tab ?? undefined} />;
     case "ledger": return <LedgerView permissions={permissions} />;
     case "oversight": return <OversightView permissions={permissions} />;
+    case "settings": return <SettingsView />;
     case "command":
       return <CommandCenter permissions={permissions} onNavigate={onNavigate} onLockdownChanged={onLockdownChanged} />;
     default:

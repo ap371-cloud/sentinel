@@ -71,7 +71,7 @@ export function Forensics() {
           sub="A suspect copy was analysed against sealed evidence. Everything below is what the backend actually returned."
           actions={
             <>
-              <Badge tone={analysis.outcome === "VERIFIED_ASSOCIATION" ? "ok" : "warn"} lg>{analysis.outcome}</Badge>
+              <Badge tone={analysis.outcome === "VERIFIED ASSOCIATION" ? "ok" : "warn"} lg>{analysis.outcome}</Badge>
               <button className="btn" onClick={() => setExportOpen(true)}>⇩ Export evidence bundle</button>
               <button className="btn primary" onClick={() => { reset(); setFile(null); if (fileInput.current) fileInput.current.value = ""; }}>
                 + Verify another copy
@@ -91,6 +91,57 @@ export function Forensics() {
         sub="Upload a document found outside the system. The pipeline extracts the watermark, verifies the evidence chain and seals the result."
         actions={<Badge tone="info">3-STAGE PIPELINE</Badge>}
       />
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Open Cases</span>
+            <span className="material-symbols-outlined text-primary text-[20px]">assignment</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-on-surface">{openCases.length}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-primary h-full w-full"></div>
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Total Evidence</span>
+            <span className="material-symbols-outlined text-secondary text-[20px]">evidence</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-secondary">{openCases.reduce((a, c) => a + (c.evidence_count ?? 0), 0)}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-secondary h-full w-full"></div>
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Verified</span>
+            <span className="material-symbols-outlined text-ok text-[20px]">verified</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-ok">{openCases.filter((c) => c.final_verification_status === "VERIFIED ASSOCIATION").length}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-ok h-full w-full"></div>
+          </div>
+        </div>
+        <div className="bg-surface-container-lowest p-4 rounded-xl shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between text-on-surface-variant mb-1">
+            <span className="font-label-md">Pending</span>
+            <span className="material-symbols-outlined text-warn text-[20px]">hourglass_top</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="font-headline-xl text-warn">{openCases.filter((c) => !c.final_verification_status).length}</span>
+          </div>
+          <div className="w-full bg-surface-container h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-warn h-full w-full"></div>
+          </div>
+        </div>
+      </div>
 
       {error ? <ErrorNotice error={error} /> : null}
 
@@ -239,7 +290,7 @@ function PipelineStep({ n, title, done, active }: { n: string; title: string; do
 function EvidenceView({ analysis, report, integrity }: {
   analysis: ForensicAnalysis; report: EvidenceReport; integrity: Record<string, unknown> | null;
 }) {
-  const verified = analysis.outcome === "VERIFIED_ASSOCIATION";
+  const verified = analysis.outcome === "VERIFIED ASSOCIATION";
   const confidence = Math.round(analysis.watermark.confidence * 100);
 
   return (

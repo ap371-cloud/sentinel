@@ -4,29 +4,34 @@ import { Badge, CopyButton, Dot, StatusBadge } from "./ui";
 /* ------------------------------------------------------------------- nav */
 
 export type NavEntry = {
-  id: string;
+  id: string;            // unique nav-key
+  route: string;         // target page route
+  tab?: string;          // sub-tab within the route
   label: string;
   ico: string;
-  /** Any one of these permissions makes the view reachable. */
   needs: string[];
 };
 
 /** One entry per console view. Where a file already renders several related
- * screens they are tabs inside that view rather than separate nav rows. */
+ *  screens they are tabs inside that view rather than separate nav rows. */
 export const NAV: NavEntry[] = [
-  { id: "command", label: "Command Centre", ico: "◈", needs: ["commander.dashboard"] },
-  { id: "documents", label: "Documents", ico: "▤", needs: ["document.read"] },
-  { id: "sessions", label: "Decryption Sessions", ico: "⊛", needs: ["document.decrypt"] },
-  { id: "identity", label: "Recipients & Devices", ico: "◍", needs: ["recipient.create", "device.manage"] },
-  { id: "approvals", label: "Approvals", ico: "⚿", needs: ["approval.request", "approval.decide"] },
-  { id: "forensics", label: "Forensics", ico: "⌕", needs: ["evidence.read"] },
-  { id: "security", label: "Security", ico: "⚡", needs: ["incident.manage"] },
-  { id: "ledger", label: "Ledger", ico: "⛓", needs: ["ledger.read"] },
-  { id: "oversight", label: "Oversight", ico: "☰", needs: ["audit.read"] },
+  { id: "overview", route: "command", label: "Overview", ico: "dashboard", needs: ["commander.dashboard"] },
+  { id: "documents", route: "documents", label: "Documents", ico: "description", needs: ["document.read"] },
+  { id: "sessions", route: "sessions", label: "Decryption Sessions", ico: "lock_clock", needs: ["document.decrypt"] },
+  { id: "identities", route: "identity", tab: "recipients", label: "Identities", ico: "badge", needs: ["recipient.create", "device.manage"] },
+  { id: "devices", route: "identity", tab: "devices", label: "Devices", ico: "devices", needs: ["device.manage"] },
+  { id: "approvals", route: "approvals", label: "Approvals", ico: "verified", needs: ["approval.request", "approval.decide"] },
+  { id: "intelligence", route: "forensics", tab: "verify", label: "Intelligence", ico: "psychology", needs: ["evidence.read"] },
+  { id: "alerts", route: "security", tab: "events", label: "Alerts", ico: "warning", needs: ["incident.manage"] },
+  { id: "investigations", route: "forensics", tab: "cases", label: "Investigations", ico: "radar", needs: ["evidence.read"] },
+  { id: "audit", route: "oversight", label: "Audit", ico: "history", needs: ["audit.read"] },
+  { id: "ledger", route: "ledger", label: "Ledger", ico: "account_balance", needs: ["ledger.read"] },
+  { id: "policies", route: "security", tab: "policies", label: "Policies", ico: "policy", needs: ["incident.manage"] },
+  { id: "settings", route: "settings", label: "Settings", ico: "settings", needs: [] },
 ];
 
 export function navVisible(entry: NavEntry, permissions: string[]): boolean {
-  return entry.needs.some((p) => permissions.includes(p));
+  return entry.needs.length === 0 || entry.needs.some((p) => permissions.includes(p));
 }
 
 /* ------------------------------------------------------------------ props */
@@ -68,7 +73,7 @@ export type LockdownInfo = { active: boolean; reason: string | null; activated_a
 export function Shell({ page, operator, status, lockdown, onNavigate, onLogout, children }: ShellProps) {
   const [collapsed, setCollapsed] = useState(false);
 
-  const current = NAV.find((n) => n.id === page) ?? NAV[0];
+  const current = NAV.find((n) => n.route === page) ?? NAV[0];
   const initials = (operator?.display_name ?? operator?.id ?? "??")
     .split(/[\s-]+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("");
 
@@ -78,51 +83,47 @@ export function Shell({ page, operator, status, lockdown, onNavigate, onLogout, 
   return (
     <div className={`shell ${collapsed ? "collapsed" : ""}`}>
       <nav className="sidebar" aria-label="Primary">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden>◈</span>
-          <span className="brand-text">
-            <b>SENTINEL</b>
-            <span>Document Security</span>
-          </span>
-        </div>
+        <div className="px-4">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="brand-mark" aria-hidden>S</div>
+            <div className="overflow-hidden">
+              <span className="brand-text b">SENTINEL</span>
+              <span className="brand-text span">SECURE COMMAND</span>
+            </div>
+          </div>
 
-        <div className="nav">
-          {allowed.map((n) => {
-            const badge = navCount(n.id, status);
-            return (
-              <div
-                key={n.id}
-                className={`nav-item ${page === n.id ? "active" : ""}`}
-                onClick={() => onNavigate(n.id)}
-                role="link"
-                tabIndex={0}
-                aria-current={page === n.id ? "page" : undefined}
-                title={collapsed ? n.label : undefined}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(n.id); } }}
-              >
-                <span className="ico" aria-hidden>{n.ico}</span>
-                <span className="lbl">{n.label}</span>
-                {badge ? <span className={`count ${badge.alert ? "alert" : ""}`}>{badge.n}</span> : null}
-              </div>
-            );
-          })}
+          <nav className="space-y-0.5" data-active-classes="bg-primary-container text-on-primary-container font-semibold">
+            {allowed.map((n) => {
+              const badge = navCount(n.route, status);
+              return (
+                <div
+                  key={n.id}
+                  className={`nav-item ${page === n.route ? "active" : ""}`}
+                  onClick={() => onNavigate(n.route)}
+                  role="link"
+                  tabIndex={0}
+                  aria-current={page === n.route ? "page" : undefined}
+                  title={collapsed ? n.label : undefined}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onNavigate(n.route); } }}
+                >
+                  <span className="material-symbols-outlined text-[18px] ico" aria-hidden>{n.ico}</span>
+                  <span className="lbl">{n.label}</span>
+                  {badge ? <span className={`count ${badge.alert ? "alert" : ""}`}>{badge.n}</span> : null}
+                </div>
+              );
+            })}
+          </nav>
         </div>
 
         <div className="side-foot">
           <div className="foot-body">
-            <div className="foot-line">
-              <span>POSTURE</span>
-              <b style={{ color: postureColor(status.postureScore) }}>
-                {status.postureScore ?? "—"}{status.postureRating ? ` ${status.postureRating}` : ""}
-              </b>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-on-surface-variant">Air-gapped mode</span>
+              <b className="text-primary font-mono font-bold">ACTIVE</b>
             </div>
-            <div className="foot-line">
-              <span>QUORUM</span>
-              <b>{status.quorum}</b>
-            </div>
-            <div className="foot-line">
-              <span>LINK</span>
-              <b style={{ color: "var(--ok)" }}>LOOPBACK</b>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-on-surface-variant">Node Quorum</span>
+              <b className="text-primary font-mono font-bold">{status.quorum}</b>
             </div>
           </div>
           <div className="side-user">
@@ -153,36 +154,55 @@ export function Shell({ page, operator, status, lockdown, onNavigate, onLogout, 
           <button
             className="icon-btn"
             onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
-            title={collapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-label={collapsed ? "Open menu" : "Close menu"}
+            title={collapsed ? "Open menu" : "Close menu"}
           >
-            {collapsed ? "»" : "«"}
+            {collapsed ? "menu_open" : "menu_close"}
           </button>
 
-          <div className="topbar-title">
-            <b>{current.label.toUpperCase()}</b>
+          <div className="flex items-center gap-1 text-sm text-on-surface-variant">
+            <span className="text-on-surface font-medium">Command Deck</span>
+            <span>/</span>
+            <span>{current.label}</span>
           </div>
 
-          <div className="topbar-spacer" />
+          <div className="flex-1" />
 
-          <span className={`env-chip ${status.systemStatus === "DEGRADED" ? "warn" : ""}`}>
-            <Dot tone={status.systemStatus === "DEGRADED" ? "warn" : "ok"} pulse />
-            {status.systemStatus}
-          </span>
+          <div className="relative flex items-center">
+            <input
+              className="bg-surface-container-low border border-outline-variant/50 rounded-lg px-3 py-1.5 text-sm text-on-surface w-72 focus:outline-none focus:border-primary"
+              placeholder="Search telemetry, hashes, IPs..."
+              type="text"
+            />
+            <span className="absolute right-2.5 text-[10px] bg-surface-container px-1.5 py-0.5 rounded text-on-surface-variant font-mono font-medium">
+              Ctrl+K
+            </span>
+          </div>
 
-          <button
-            className="icon-btn"
-            onClick={() => onNavigate("security")}
-            aria-label={`${alertCount} open incidents`}
-            title="Open incidents"
-          >
-            ⚑
-            {alertCount > 0 ? <span className="pip">{alertCount > 99 ? "99+" : alertCount}</span> : null}
-          </button>
+          <div className="flex items-center gap-2">
+            <button className="px-2.5 py-1 rounded bg-primary-container/20 text-primary text-xs font-mono font-semibold border border-primary/30">
+              Operational
+            </button>
+          </div>
 
-          <button className="icon-btn" onClick={onLogout} aria-label="Sign out" title="Sign out">
-            ⏻
-          </button>
+          <div className="relative">
+            <span className="material-symbols-outlined text-on-surface-variant cursor-pointer">notifications</span>
+            {alertCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-error text-on-error text-[10px] w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                {alertCount > 99 ? "99+" : alertCount}
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 pl-4 border-l border-outline-variant/30">
+            <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-on-primary">
+              <span className="material-symbols-outlined text-[18px]">person</span>
+            </div>
+            <div className="hidden xl:block">
+              <div className="text-sm font-medium text-on-surface">{operator?.display_name ?? operator?.id ?? "—"}</div>
+              <div className="text-xs text-on-surface-variant">{operator?.role ?? "UNAUTHENTICATED"}</div>
+            </div>
+          </div>
         </header>
 
         <main className="content">{children}</main>
@@ -191,9 +211,9 @@ export function Shell({ page, operator, status, lockdown, onNavigate, onLogout, 
   );
 }
 
-function navCount(id: string, s: ShellStatus): { n: number; alert: boolean } | null {
-  if (id === "security" && s.openIncidents) return { n: s.openIncidents, alert: s.criticalIncidents > 0 };
-  if (id === "approvals" && s.pendingApprovals) return { n: s.pendingApprovals, alert: false };
+function navCount(route: string, s: ShellStatus): { n: number; alert: boolean } | null {
+  if (route === "security" && s.openIncidents) return { n: s.openIncidents, alert: s.criticalIncidents > 0 };
+  if (route === "approvals" && s.pendingApprovals) return { n: s.pendingApprovals, alert: false };
   return null;
 }
 

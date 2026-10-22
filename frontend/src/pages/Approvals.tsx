@@ -11,6 +11,21 @@ import { IdentBadge } from "../components/layout";
 
 type Filter = "all" | "PENDING" | "APPROVED" | "DENIED" | "EXPIRED";
 
+function actionIcon(action: string) {
+  if (action.includes("revoke")) return "lock";
+  if (action.includes("decrypt")) return "vpn_key";
+  if (action.includes("export")) return "download";
+  if (action.includes("share")) return "share";
+  if (action.includes("recover")) return "restore";
+  if (action.includes("edit") || action.includes("policy")) return "edit_note";
+  if (action.includes("emergency") || action.includes("break")) return "bolt";
+  if (action.includes("document")) return "description";
+  if (action.includes("recipient") || action.includes("user")) return "badge";
+  if (action.includes("device")) return "devices";
+  if (action.includes("key")) return "key";
+  return "rule";
+}
+
 type DecisionResponse = { approval?: Approval; sufficient?: boolean };
 
 export function Approvals() {
@@ -120,12 +135,21 @@ export function Approvals() {
           rows={filtered}
           empty={<EmptyState icon="⚿" title="No approval requests" sub={q ? `Nothing matches “${q}”.` : "No dual-control request is open right now."} />}
           columns={[
-            { key: "a", head: "Action", render: (r) => (
-              <span className="stack" style={{ gap: 2 }}>
-                <span>{r.action.replace(/[._]/g, " ")}</span>
-                <span className="tiny dim">by {r.requested_by}</span>
-              </span>
-            ) },
+            {
+              key: "a",
+              head: "Request",
+              render: (r) => (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-surface-container-low text-on-surface-variant shrink-0">
+                    <span className="material-symbols-outlined text-[20px]">{actionIcon(r.action)}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-on-surface">{r.action.replace(/[._]/g, " ")}</span>
+                    <span className="tiny dim font-mono">by {r.requested_by}</span>
+                  </div>
+                </div>
+              ),
+            },
             { key: "s", head: "Subject", render: (r) => <IdentBadge id={r.subject_id} kind="subject" /> },
             { key: "j", head: "Justification", render: (r) => <span className="tiny muted" style={{ maxWidth: 320, display: "block" }}>{r.justification}</span> },
             { key: "q", head: "Approvals", render: (r) => (
